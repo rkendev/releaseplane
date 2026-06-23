@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Umbrella Logistics",
+  "invoice_number": "INV-2026-28360",
+  "invoice_date": "2026-03-01",
+  "line_items": [
+    {
+      "description": "Shipping and handling",
+      "qty": "1",
+      "unit_price": "290.05"
+    },
+    {
+      "description": "Software license",
+      "qty": "11",
+      "unit_price": "208.52"
+    },
+    {
+      "description": "Training session",
+      "qty": "2",
+      "unit_price": "156.56"
+    },
+    {
+      "description": "Maintenance fee",
+      "qty": "7",
+      "unit_price": "8.85"
+    }
+  ],
+  "subtotal": "2958.84",
+  "tax": "0.00",
+  "total": "2958.84",
+  "currency": "EUR",
+  "payment_terms": "Net 30"
+}

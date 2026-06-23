@@ -1,0 +1,27 @@
+{
+  "vendor_name": "Pied Piper Storage",
+  "invoice_number": "INV-2026-23171",
+  "invoice_date": "2026-08-24",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "8",
+      "unit_price": "455.11"
+    },
+    {
+      "description": "Cloud usage",
+      "qty": "12",
+      "unit_price": "360.64"
+    },
+    {
+      "description": "Raw materials",
+      "qty": "1",
+      "unit_price": "346.56"
+    }
+  ],
+  "subtotal": "8315.12",
+  "tax": "415.76",
+  "total": "8730.88",
+  "currency": "EUR",
+  "payment_terms": ""
+}

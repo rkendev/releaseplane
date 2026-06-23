@@ -1167,6 +1167,12 @@ provides-extras = ["dev"]
 name = "releaseplane-workspace"
 version = "0.0.0"
 source = { virtual = "." }
+dependencies = [
+    { name = "releaseplane" },
+    { name = "releaseplane-control" },
+    { name = "releaseplane-evals" },
+    { name = "releaseplane-gateway" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1179,6 +1185,12 @@ dev = [
 ]
 
 [package.metadata]
+requires-dist = [
+    { name = "releaseplane", editable = "sdk" },
+    { name = "releaseplane-control", editable = "control-plane" },
+    { name = "releaseplane-evals", editable = "evals" },
+    { name = "releaseplane-gateway", editable = "gateway" },
+]
 
 [package.metadata.requires-dev]
 dev = [

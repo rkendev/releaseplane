@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Meadow Farm Produce",
+  "invoice_number": "INV-2026-0277",
+  "invoice_date": "2026-09-27",
+  "line_items": [
+    {
+      "description": "Organic apples (crate)",
+      "qty": "8",
+      "unit_price": "24.00"
+    },
+    {
+      "description": "Delivery",
+      "qty": "1",
+      "unit_price": "18.00"
+    }
+  ],
+  "subtotal": "210.00",
+  "tax": "0.00",
+  "total": "210.00",
+  "currency": "USD",
+  "payment_terms": "Due on receipt"
+}

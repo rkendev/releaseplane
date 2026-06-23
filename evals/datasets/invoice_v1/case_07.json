@@ -1,0 +1,27 @@
+{
+  "vendor_name": "Vandelay Imports",
+  "invoice_number": "INV-2026-62397",
+  "invoice_date": "2026-07-02",
+  "line_items": [
+    {
+      "description": "Software license",
+      "qty": "2",
+      "unit_price": "497.33"
+    },
+    {
+      "description": "Installation service",
+      "qty": "1",
+      "unit_price": "236.55"
+    },
+    {
+      "description": "Maintenance fee",
+      "qty": "4",
+      "unit_price": "442.11"
+    }
+  ],
+  "subtotal": "2999.65",
+  "tax": "0.00",
+  "total": "2999.65",
+  "currency": "DKK",
+  "payment_terms": "Net 15"
+}

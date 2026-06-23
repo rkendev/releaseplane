@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Gekko Office Group",
+  "invoice_number": "INV-2026-28082",
+  "invoice_date": "2026-01-26",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "10",
+      "unit_price": "50.36"
+    },
+    {
+      "description": "Installation service",
+      "qty": "6",
+      "unit_price": "502.50"
+    }
+  ],
+  "subtotal": "3518.60",
+  "tax": "299.08",
+  "total": "3817.68",
+  "currency": "CHF",
+  "payment_terms": "Net 45"
+}

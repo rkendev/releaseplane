@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Umbrella Logistics",
+  "invoice_number": "INV-2026-55524",
+  "invoice_date": "2026-10-17",
+  "line_items": [
+    {
+      "description": "Installation service",
+      "qty": "6",
+      "unit_price": "48.03"
+    },
+    {
+      "description": "Software license",
+      "qty": "11",
+      "unit_price": "554.19"
+    },
+    {
+      "description": "Support retainer",
+      "qty": "5",
+      "unit_price": "87.96"
+    },
+    {
+      "description": "Consulting hours",
+      "qty": "7",
+      "unit_price": "576.33"
+    }
+  ],
+  "subtotal": "10858.38",
+  "tax": "2171.68",
+  "total": "13030.06",
+  "currency": "USD",
+  "payment_terms": ""
+}

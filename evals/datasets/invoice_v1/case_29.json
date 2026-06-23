@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Massive Dynamic",
+  "invoice_number": "INV-2026-91687",
+  "invoice_date": "2026-08-19",
+  "line_items": [
+    {
+      "description": "Software license",
+      "qty": "2",
+      "unit_price": "405.39"
+    },
+    {
+      "description": "Software license",
+      "qty": "7",
+      "unit_price": "556.68"
+    },
+    {
+      "description": "Software license",
+      "qty": "10",
+      "unit_price": "503.98"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "9",
+      "unit_price": "24.36"
+    }
+  ],
+  "subtotal": "9966.58",
+  "tax": "498.33",
+  "total": "10464.91",
+  "currency": "EUR",
+  "payment_terms": "Net 45"
+}

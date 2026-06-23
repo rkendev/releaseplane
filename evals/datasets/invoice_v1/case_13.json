@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Wayne Hardware",
+  "invoice_number": "INV-2026-63677",
+  "invoice_date": "2026-02-14",
+  "line_items": [
+    {
+      "description": "Shipping and handling",
+      "qty": "6",
+      "unit_price": "272.81"
+    },
+    {
+      "description": "Software license",
+      "qty": "12",
+      "unit_price": "372.18"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "10",
+      "unit_price": "172.59"
+    },
+    {
+      "description": "Hardware components",
+      "qty": "9",
+      "unit_price": "574.43"
+    }
+  ],
+  "subtotal": "12998.79",
+  "tax": "2599.76",
+  "total": "15598.55",
+  "currency": "GBP",
+  "payment_terms": "Net 45"
+}

@@ -1,0 +1,17 @@
+{
+  "vendor_name": "Stark Components",
+  "invoice_number": "INV-2026-92925",
+  "invoice_date": "2026-07-12",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "3",
+      "unit_price": "13.98"
+    }
+  ],
+  "subtotal": "41.94",
+  "tax": "2.10",
+  "total": "44.04",
+  "currency": "SEK",
+  "payment_terms": "Due on receipt"
+}

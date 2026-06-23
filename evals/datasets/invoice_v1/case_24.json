@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Massive Dynamic",
+  "invoice_number": "INV-2026-28231",
+  "invoice_date": "2026-03-14",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "11",
+      "unit_price": "79.10"
+    },
+    {
+      "description": "Support retainer",
+      "qty": "5",
+      "unit_price": "325.13"
+    }
+  ],
+  "subtotal": "2495.75",
+  "tax": "187.18",
+  "total": "2682.93",
+  "currency": "JPY",
+  "payment_terms": ""
+}

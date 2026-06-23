@@ -1,0 +1,27 @@
+{
+  "vendor_name": "Gekko Office Group",
+  "invoice_number": "INV-2026-94969",
+  "invoice_date": "2026-11-18",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "3",
+      "unit_price": "207.05"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "5",
+      "unit_price": "301.46"
+    },
+    {
+      "description": "Cloud usage",
+      "qty": "3",
+      "unit_price": "406.61"
+    }
+  ],
+  "subtotal": "3348.28",
+  "tax": "167.41",
+  "total": "3515.69",
+  "currency": "DKK",
+  "payment_terms": "Net 30"
+}

@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Tyrell Manufacturing",
+  "invoice_number": "INV-2026-63793",
+  "invoice_date": "2026-07-01",
+  "line_items": [
+    {
+      "description": "Maintenance fee",
+      "qty": "3",
+      "unit_price": "312.33"
+    },
+    {
+      "description": "Installation service",
+      "qty": "5",
+      "unit_price": "328.11"
+    }
+  ],
+  "subtotal": "2577.54",
+  "tax": "515.51",
+  "total": "3093.05",
+  "currency": "DKK",
+  "payment_terms": ""
+}

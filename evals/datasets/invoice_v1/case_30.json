@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Vandelay Imports",
+  "invoice_number": "INV-2026-38705",
+  "invoice_date": "2026-04-04",
+  "line_items": [
+    {
+      "description": "Installation service",
+      "qty": "1",
+      "unit_price": "460.44"
+    },
+    {
+      "description": "Software license",
+      "qty": "9",
+      "unit_price": "526.01"
+    }
+  ],
+  "subtotal": "5194.53",
+  "tax": "259.73",
+  "total": "5454.26",
+  "currency": "EUR",
+  "payment_terms": ""
+}

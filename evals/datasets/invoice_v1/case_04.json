@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Sirius Cybernetics",
+  "invoice_number": "INV-2026-22963",
+  "invoice_date": "2026-12-08",
+  "line_items": [
+    {
+      "description": "Maintenance fee",
+      "qty": "12",
+      "unit_price": "254.45"
+    },
+    {
+      "description": "Training session",
+      "qty": "8",
+      "unit_price": "381.36"
+    },
+    {
+      "description": "Consulting hours",
+      "qty": "5",
+      "unit_price": "502.65"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "12",
+      "unit_price": "176.46"
+    }
+  ],
+  "subtotal": "10735.05",
+  "tax": "0.00",
+  "total": "10735.05",
+  "currency": "EUR",
+  "payment_terms": "Net 15"
+}

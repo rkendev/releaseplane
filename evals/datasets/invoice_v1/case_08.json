@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Hooli Distribution",
+  "invoice_number": "INV-2026-42124",
+  "invoice_date": "2026-05-23",
+  "line_items": [
+    {
+      "description": "Training session",
+      "qty": "1",
+      "unit_price": "577.61"
+    },
+    {
+      "description": "Support retainer",
+      "qty": "4",
+      "unit_price": "582.13"
+    },
+    {
+      "description": "Consulting hours",
+      "qty": "9",
+      "unit_price": "293.17"
+    },
+    {
+      "description": "Raw materials",
+      "qty": "10",
+      "unit_price": "208.93"
+    }
+  ],
+  "subtotal": "7633.96",
+  "tax": "572.55",
+  "total": "8206.51",
+  "currency": "CHF",
+  "payment_terms": "Due on receipt"
+}

@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Cyberdyne Systems",
+  "invoice_number": "INV-2026-39907",
+  "invoice_date": "2026-04-13",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "8",
+      "unit_price": "93.00"
+    },
+    {
+      "description": "Installation service",
+      "qty": "1",
+      "unit_price": "212.59"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "10",
+      "unit_price": "284.12"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "9",
+      "unit_price": "296.85"
+    }
+  ],
+  "subtotal": "6469.44",
+  "tax": "485.21",
+  "total": "6954.65",
+  "currency": "CHF",
+  "payment_terms": "Net 45"
+}

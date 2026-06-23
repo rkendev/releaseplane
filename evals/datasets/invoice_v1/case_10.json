@@ -1,0 +1,27 @@
+{
+  "vendor_name": "Massive Dynamic",
+  "invoice_number": "INV-2026-79629",
+  "invoice_date": "2026-10-25",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "4",
+      "unit_price": "36.00"
+    },
+    {
+      "description": "Hardware components",
+      "qty": "9",
+      "unit_price": "471.15"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "1",
+      "unit_price": "380.83"
+    }
+  ],
+  "subtotal": "4765.18",
+  "tax": "953.04",
+  "total": "5718.22",
+  "currency": "EUR",
+  "payment_terms": "Net 15"
+}

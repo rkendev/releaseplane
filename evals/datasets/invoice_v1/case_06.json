@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Hooli Distribution",
+  "invoice_number": "INV-2026-11886",
+  "invoice_date": "2026-11-18",
+  "line_items": [
+    {
+      "description": "Support retainer",
+      "qty": "2",
+      "unit_price": "162.01"
+    },
+    {
+      "description": "Training session",
+      "qty": "4",
+      "unit_price": "256.23"
+    },
+    {
+      "description": "Support retainer",
+      "qty": "8",
+      "unit_price": "430.43"
+    },
+    {
+      "description": "Support retainer",
+      "qty": "10",
+      "unit_price": "518.55"
+    }
+  ],
+  "subtotal": "9977.88",
+  "tax": "848.12",
+  "total": "10826.00",
+  "currency": "JPY",
+  "payment_terms": "Net 45"
+}

@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Acme Industrial",
+  "invoice_number": "INV-2026-31991",
+  "invoice_date": "2026-04-16",
+  "line_items": [
+    {
+      "description": "Hardware components",
+      "qty": "3",
+      "unit_price": "408.06"
+    },
+    {
+      "description": "Consulting hours",
+      "qty": "11",
+      "unit_price": "158.66"
+    }
+  ],
+  "subtotal": "2969.44",
+  "tax": "0.00",
+  "total": "2969.44",
+  "currency": "NOK",
+  "payment_terms": "Due on receipt"
+}

@@ -1,0 +1,22 @@
+{
+  "vendor_name": "Zenith Precision Parts",
+  "invoice_number": "007341",
+  "invoice_date": "2026-07-21",
+  "line_items": [
+    {
+      "description": "Bearing assembly",
+      "qty": "4",
+      "unit_price": "75.00"
+    },
+    {
+      "description": "Gasket set",
+      "qty": "2",
+      "unit_price": "60.00"
+    }
+  ],
+  "subtotal": "420.00",
+  "tax": "21.00",
+  "total": "441.00",
+  "currency": "GBP",
+  "payment_terms": "Net 15"
+}

@@ -1,0 +1,17 @@
+{
+  "vendor_name": "Massive Dynamic",
+  "invoice_number": "INV-2026-57051",
+  "invoice_date": "2026-08-26",
+  "line_items": [
+    {
+      "description": "Training session",
+      "qty": "9",
+      "unit_price": "524.10"
+    }
+  ],
+  "subtotal": "4716.90",
+  "tax": "235.85",
+  "total": "4952.75",
+  "currency": "EUR",
+  "payment_terms": "Net 45"
+}

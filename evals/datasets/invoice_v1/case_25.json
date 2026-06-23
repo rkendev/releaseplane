@@ -1,0 +1,17 @@
+{
+  "vendor_name": "Sirius Cybernetics",
+  "invoice_number": "INV-2026-34106",
+  "invoice_date": "2026-09-09",
+  "line_items": [
+    {
+      "description": "Installation service",
+      "qty": "8",
+      "unit_price": "16.76"
+    }
+  ],
+  "subtotal": "134.08",
+  "tax": "11.40",
+  "total": "145.48",
+  "currency": "EUR",
+  "payment_terms": "Net 15"
+}

@@ -1,0 +1,32 @@
+{
+  "vendor_name": "Initech Services",
+  "invoice_number": "INV-2026-92938",
+  "invoice_date": "2026-05-07",
+  "line_items": [
+    {
+      "description": "Training session",
+      "qty": "2",
+      "unit_price": "432.61"
+    },
+    {
+      "description": "Installation service",
+      "qty": "4",
+      "unit_price": "94.86"
+    },
+    {
+      "description": "Software license",
+      "qty": "3",
+      "unit_price": "347.05"
+    },
+    {
+      "description": "Shipping and handling",
+      "qty": "6",
+      "unit_price": "20.13"
+    }
+  ],
+  "subtotal": "2406.59",
+  "tax": "204.56",
+  "total": "2611.15",
+  "currency": "DKK",
+  "payment_terms": ""
+}

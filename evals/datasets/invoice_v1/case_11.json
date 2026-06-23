@@ -1,0 +1,17 @@
+{
+  "vendor_name": "Sirius Cybernetics",
+  "invoice_number": "INV-2026-80311",
+  "invoice_date": "2026-01-03",
+  "line_items": [
+    {
+      "description": "Installation service",
+      "qty": "2",
+      "unit_price": "368.11"
+    }
+  ],
+  "subtotal": "736.22",
+  "tax": "62.58",
+  "total": "798.80",
+  "currency": "CHF",
+  "payment_terms": "Net 15"
+}

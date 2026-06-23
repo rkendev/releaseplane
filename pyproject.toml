@@ -7,9 +7,23 @@ version = "0.0.0"
 description = "Workspace root for the ReleasePlane control plane."
 requires-python = ">=3.12"
 readme = "README.md"
+# Depend on every workspace member so a plain `uv sync` installs all packages
+# (and their runtime deps) into the dev environment. The root itself is virtual.
+dependencies = [
+    "releaseplane-control",
+    "releaseplane-gateway",
+    "releaseplane-evals",
+    "releaseplane",
+]
 
 [tool.uv]
 package = false
+
+[tool.uv.sources]
+releaseplane-control = { workspace = true }
+releaseplane-gateway = { workspace = true }
+releaseplane-evals = { workspace = true }
+releaseplane = { workspace = true }
 
 [tool.uv.workspace]
 members = ["control-plane", "gateway", "evals", "sdk"]
@@ -35,13 +49,24 @@ extend-exclude = ["evals/datasets/*"]
 select = ["E", "F", "I", "B", "UP", "N", "S", "RUF"]
 ignore = ["S101"]  # asserts in tests
 
+[tool.ruff.lint.per-file-ignores]
+# The dataset generator uses the stdlib PRNG with a fixed seed for reproducible
+# synthetic data; it is not security-sensitive.
+"evals/src/releaseplane_evals/generator/invoices.py" = ["S311"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
-exclude = ["evals/datasets/", "evals/generator/"]
+# Generated data and the dataset generator are excluded: the generator imports
+# the reference `examples` package, which is not an installed module on mypy's
+# path. It is exercised by the determinism tests instead.
+exclude = ["evals/datasets/", "evals/src/releaseplane_evals/generator/"]
 
 [tool.pytest.ini_options]
 testpaths = ["control-plane/tests", "gateway/tests", "evals/tests"]
 # importlib mode lets each package keep a plain (non-package) tests/ dir, so the
 # four tests/ directories do not collide as a single top-level "tests" module.
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
+# Repo root on the path so tests can import the canonical `examples` schema
+# package, which is a reference (not an installed workspace member).
+pythonpath = ["."]
