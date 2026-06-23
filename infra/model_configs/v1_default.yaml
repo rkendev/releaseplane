@@ -16,6 +16,6 @@ temperature: 0.0                            # deterministic extraction
 max_tokens: 4096
 timeout_ms: 30000
 tool_mode: structured_output                # routes to the adapter's generate_structured() path
-cost_per_1k_input_tokens_usd: 3.00          # [volatile: 2026-06-23] LABEL BUG: value is per-MILLION ($3.00/MTok), not per-1k; verified Sonnet 4.6 rate; fix field name or value before any dashboard read. See substrate_change_2026-06-23.md.
-cost_per_1k_output_tokens_usd: 15.00        # [volatile: 2026-06-23] LABEL BUG: value is per-MILLION ($15.00/MTok), not per-1k. Same fix.
+cost_per_mtok_input_usd: 3.00               # [volatile: 2026-06-23] verified Sonnet 4.6 input rate, per million tokens.
+cost_per_mtok_output_usd: 15.00             # [volatile: 2026-06-23] verified Sonnet 4.6 output rate, per million tokens.
 active: true

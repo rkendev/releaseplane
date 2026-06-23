@@ -126,7 +126,7 @@ Strongest reason the substrate did not move the answer: schema-source choice is 
 
 3. **The Cost Ledger genuinely moved.** Unanimous. Verified current Sonnet 4.6 pricing recomputes the transcript's own 4k-in / 1k-out assumption to ~$27 / 1k invoices, not the $9-15 / 1k the transcript stated. This is a numbers correction, not a verdict change, and it is where the substrate-change event actually leaves a mark. See Cost-Delta Probe.
 
-4. **`v1_default.yaml` field-label bug.** Two seats flagged that `cost_per_1k_input_tokens_usd: 3.00` / `cost_per_1k_output_tokens_usd: 15.00` carry the per-million rates under a per-thousand field name. Any cost dashboard reading the field at face value would be off by 1000x. Filed as a risk; documentation correction recommended now, not deferred.
+4. **`v1_default.yaml` field-label bug (fixed in Phase 1).** Two seats flagged that the cost fields carried the per-million rates under a per-thousand field name, so any cost dashboard reading the field at face value would be off by 1000x. Renamed to `cost_per_mtok_input_usd` / `cost_per_mtok_output_usd` (values unchanged).
 
 5. **Detection was manual.** One seat noted that ReleasePlane did not catch its own substrate change; a human did. The Substrate Pin rule (echo the model in every session opener) is a convention, not enforcement. No seat claimed the tooling caught it. This constrains the interview sound-bite to a truthful form.
 
@@ -162,7 +162,7 @@ None of the three is affected by the substrate change. They retain their origina
 Mandated form: run one deterministic Phase 0 eval case end-to-end on Opus 4.8 and report token-in / token-out / latency / cost against the 4.7 baseline as concrete numbers.
 
 **What could not be run, and why (stated plainly, not worked around).**
-- No Anthropic API credential is present in the workstation sandbox (`env` shows only `CLAUDE_TMPDIR` / `CLAUDE_CODE_TMPDIR`; the SDK is not installed). Network egress to `api.anthropic.com:443` is open, but authentication is impossible from here. A real, billed end-to-end run with measured latency cannot be produced this session.
+- No Anthropic API credential is present in the design-session sandbox (only sandbox-local temp-dir variables are set; the SDK is not installed). Network egress to `api.anthropic.com:443` is open, but authentication is impossible from here. A real, billed end-to-end run with measured latency cannot be produced this session.
 - There is no committed Phase 0 eval case to run. `evals/generator/invoices.py` and `evals/datasets/invoice_v1/` were action-plan items #6 and #7, tagged Phase 0 -> Phase 2 / Phase 4; the `evals/` package today holds only `pyproject.toml` and empty `src` / `tests`. The deterministic case is therefore reconstructed from the DEMO.md headline case (#14).
 
 Per the Re-Validation Budget and the project's anti-puffery rule, the **measured (live) latency and billed-cost portion is marked defer-to-Phase-1-entry**, to run on the VPS where the credential lives, against the generated dataset once it exists. No latency number is invented.
@@ -184,7 +184,7 @@ Current per-MTok pricing, web-verified 2026-06-23: Sonnet 4.6 = $3.00 in / $15.0
 1. The 4.7-era Cost Ledger is internally inconsistent: under its own 4k-in/1k-out assumption and verified Sonnet pricing it is ~$27/1k, roughly double the $9-15/1k it reported. The prior figure understated production cost.
 2. The substrate change does **not** move the production Cost Ledger at the inference layer, because production is pinned to Sonnet 4.6 and Sonnet pricing is unchanged. The Ledger correction above is a re-pricing of a stale estimate, not an effect of the Opus swap.
 3. The only Opus-4.8 cost relevance is hypothetical: if the authoring model were ever confused for the inference model, unit cost rises +67%. The adapter Protocol and the pinned `v1_default.yaml` are what prevent that confusion, which ties back to V2.
-4. `infra/model_configs/v1_default.yaml` mislabels per-million rates as `cost_per_1k_*` fields. Correct before any public cost claim or automated dashboard read.
+4. `infra/model_configs/v1_default.yaml` previously mislabeled per-million rates under per-thousand field names; renamed to `cost_per_mtok_*` in Phase 1 (values unchanged).
 
 All cost figures [volatile: 2026-06-23].
 

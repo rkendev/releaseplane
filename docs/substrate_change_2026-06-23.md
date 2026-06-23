@@ -36,18 +36,18 @@ The substrate change does not move the production Cost Ledger at the inference l
 - Re-pricing the transcript's own 4k-in / 1k-out assumption on verified current Sonnet 4.6 rates ($3 / $15 per MTok) yields **~$27 / 1k invoices**, against the **$9-15 / 1k** the 4.7-era Ledger stated. The prior figure understated production cost. [volatile: 2026-06-23]
 - Opus 4.8 as an inference model (reference only, not the production path) would cost ~$45 / 1k invoices, a +67% delta over Sonnet 4.6. This matters only as the cost of ever confusing the authoring model for the inference model, which the pinned config and the adapter Protocol prevent. [volatile: 2026-06-23]
 
-The live, measured portion of the Cost-Delta Probe (real token counts, latency, billed cost) could not run this session: no API credential exists in the workstation sandbox, and no eval case is committed yet. It is marked defer-to-Phase-1-entry, to run on the VPS against the generated dataset. No latency or billed-cost number was invented.
+The live, measured portion of the Cost-Delta Probe (real token counts, latency, billed cost) could not run this session: no API credential exists in the design-session sandbox, and no eval case is committed yet. It is marked defer-to-Phase-1-entry, to run on the VPS against the generated dataset. No latency or billed-cost number was invented.
 
 ## Newly-surfaced risks
 
 1. **Manual detection (U4).** ReleasePlane did not catch its own substrate change; a human did. The Substrate Pin is a convention, not enforcement. Until a CI check exists, a future drift can still pass unnoticed if a session opener omits the model echo.
-2. **`v1_default.yaml` cost-field label bug.** `cost_per_1k_input_tokens_usd: 3.00` / `cost_per_1k_output_tokens_usd: 15.00` hold the per-million rates under per-thousand field names. A dashboard reading them literally is off by 1000x. Fix before any public cost claim.
+2. **`v1_default.yaml` cost-field label bug (fixed in Phase 1).** The cost fields held the per-million rates under per-thousand field names, so a dashboard reading them literally was off by 1000x. Renamed to `cost_per_mtok_input_usd` / `cost_per_mtok_output_usd` (values unchanged).
 3. **Missing eval dataset and generator.** `evals/generator/invoices.py` and `datasets/invoice_v1/` do not exist yet. Until they do, neither the arithmetic-gate demo headline nor a live Cost-Delta run can execute. This is Phase 4 work but it gates the demo.
 4. **Opus 4.7 artifacts are now unauditable on their original substrate.** Any 4.7-specific reasoning in Phase 0 cannot be re-run on 4.7. Mitigation applied: prior-session record renamed from `workflow_opus_4_7.txt` to `workflow_phase0_locked.txt` so the substrate is not encoded in the filename of an artifact meant to outlive it; Cost Ledger marked volatile and superseded.
 
 ## Decision
 
-**Proceed to Phase 1.** All six verdicts survive (five unchanged, one qualified-yes that does not block). No part of Phase 0 needs to be re-done. The only Phase 0 changes are documentation: Cost Ledger re-priced and marked, DEMO.md given a substrate-change beat, V2 assumption note, and the four risks above filed as Phase 1 backlog. ReleasePlane is ready to hand to Claude Code for Phase 1 dev-kit hardening.
+**Proceed to Phase 1.** All six verdicts survive (five unchanged, one qualified-yes that does not block). No part of Phase 0 needs to be re-done. The only Phase 0 changes are documentation: Cost Ledger re-priced and marked, DEMO.md given a substrate-change beat, V2 assumption note, and the four risks above filed as Phase 1 backlog. ReleasePlane is ready to hand to the Phase 1 executor for dev-kit hardening.
 
 ---
 

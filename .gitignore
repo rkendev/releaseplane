@@ -47,3 +47,6 @@ evals/_runs/
 
 # Local-only docker overrides
 docker-compose.override.yml
+
+# Build scaffolding / task briefs: kept on disk, not part of the portfolio repo
+T_phase1_entry.md
