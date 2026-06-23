@@ -89,14 +89,17 @@ services:
     container_name: releaseplane-control-plane
     environment:
       DATABASE_URL: postgresql+asyncpg://releaseplane@postgres:5432/releaseplane
+      DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+    secrets:
+      - postgres_password
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8001:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -117,7 +120,7 @@ services:
     ports:
       - "8002:8000"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)"]
       interval: 10s
       timeout: 3s
       retries: 5

@@ -31,13 +31,16 @@ test:
 	exit $$ec
 
 # Write one secret file per value in .env (workspace root) into infra/secrets/.
-# See infra/secrets.md. Never commit .env or the generated files.
+# See infra/secrets.md. Never commit .env or the generated files. Files are
+# world-readable (0644) because dev containers (e.g. grafana, uid 472) read them
+# as non-root; production uses a separate 0400 path per infra/secrets.md.
 secrets:
 	@test -f .env || { echo "copy infra/.env.example to .env and fill it first"; exit 1; }
 	@set -a; . ./.env; set +a; \
-	umask 077; \
 	printf '%s' "$$POSTGRES_PASSWORD"     > infra/secrets/postgres_password; \
 	printf '%s' "$$MINIO_ROOT_PASSWORD"   > infra/secrets/minio_root_password; \
 	printf '%s' "$$GRAFANA_ADMIN_PASSWORD" > infra/secrets/grafana_admin_password; \
 	printf '%s' "$$CLAUDE_API_KEY"        > infra/secrets/claude_api_key; \
+	chmod 0644 infra/secrets/postgres_password infra/secrets/minio_root_password \
+	           infra/secrets/grafana_admin_password infra/secrets/claude_api_key; \
 	echo "wrote infra/secrets/{postgres_password,minio_root_password,grafana_admin_password,claude_api_key}"

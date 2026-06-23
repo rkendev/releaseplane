@@ -33,6 +33,12 @@ repos:
         additional_dependencies:
           - pydantic>=2.10
           - fastapi>=0.115
+          - sqlalchemy>=2.0
+          - prometheus-client>=0.21
+          - opentelemetry-api>=1.28
+          - opentelemetry-sdk>=1.28
+          - opentelemetry-exporter-otlp-proto-grpc>=1.28
+          - opentelemetry-instrumentation-fastapi>=0.49b0
         # Source only: tests/ dirs are not packages (importlib mode), and
         # type-checking them as a single "tests" module collides across packages.
         files: ^(control-plane|gateway|evals|sdk)/src/
