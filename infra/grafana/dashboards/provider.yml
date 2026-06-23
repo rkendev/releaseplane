@@ -1,0 +1,11 @@
+# Grafana dashboard provider: load JSON dashboards from this provisioning dir.
+apiVersion: 1
+providers:
+  - name: ReleasePlane
+    orgId: 1
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /etc/grafana/provisioning/dashboards
+      foldersFromFilesStructure: false

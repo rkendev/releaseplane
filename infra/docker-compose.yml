@@ -6,7 +6,7 @@
 
 services:
   postgres:
-    image: postgres:17-alpine@sha256:PLACEHOLDER_DIGEST  # Phase 1: pin a real digest
+    image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
     container_name: releaseplane-postgres
     environment:
       POSTGRES_DB: releaseplane
@@ -25,7 +25,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:RELEASE.2026-PLACEHOLDER@sha256:PLACEHOLDER_DIGEST
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     container_name: releaseplane-minio
     command: server /data --console-address ":9001"
     environment:
@@ -45,7 +45,7 @@ services:
       retries: 5
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115.0@sha256:PLACEHOLDER_DIGEST
+    image: otel/opentelemetry-collector-contrib:0.140.0@sha256:ffc818ee108d0b934fd14207fd87ff247c9b64f344ed349d0b66c166c18a2312
     container_name: releaseplane-otel
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
@@ -55,14 +55,14 @@ services:
       - "4318:4318"
 
   jaeger:
-    image: jaegertracing/all-in-one:1.62@sha256:PLACEHOLDER_DIGEST
+    image: jaegertracing/all-in-one:1.76.0@sha256:ab6f1a1f0fb49ea08bcd19f6b84f6081d0d44b364b6de148e1798eb5816bacac
     container_name: releaseplane-jaeger
     ports:
       - "16686:16686"
       - "4317"  # internal only
 
   prometheus:
-    image: prom/prometheus:v3.0.1@sha256:PLACEHOLDER_DIGEST
+    image: prom/prometheus:v3.0.1@sha256:565ee86501224ebbb98fc10b332fa54440b100469924003359edf49cbce374bd
     container_name: releaseplane-prometheus
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
@@ -70,13 +70,14 @@ services:
       - "9090:9090"
 
   grafana:
-    image: grafana/grafana:11.4.0@sha256:PLACEHOLDER_DIGEST
+    image: grafana/grafana:11.4.0@sha256:d8ea37798ccc41061a62ab080f2676dda6bf7815558499f901bdb0f533a456fb
     container_name: releaseplane-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
     secrets:
       - grafana_admin_password
     volumes:
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources:ro
       - ./grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
       - grafana_data:/var/lib/grafana
     ports:
