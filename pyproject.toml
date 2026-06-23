@@ -1,0 +1,47 @@
+# Workspace umbrella. The installable SDK package owns the `releaseplane`
+# distribution name (see sdk/pyproject.toml); this root is named distinctly so
+# uv does not see two workspace members with the same name.
+[project]
+name = "releaseplane-workspace"
+version = "0.0.0"
+description = "Workspace root for the ReleasePlane control plane."
+requires-python = ">=3.12"
+readme = "README.md"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["control-plane", "gateway", "evals", "sdk"]
+
+# Dev toolchain, pinned in uv.lock so `make check` and pre-commit resolve the
+# same versions everywhere. Versions track .pre-commit-config.yaml.
+[dependency-groups]
+dev = [
+    "ruff==0.8.4",
+    "mypy==1.13.0",
+    "pre-commit>=4.0",
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.28",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["evals/datasets/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "S", "RUF"]
+ignore = ["S101"]  # asserts in tests
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["evals/datasets/", "evals/generator/"]
+
+[tool.pytest.ini_options]
+testpaths = ["control-plane/tests", "gateway/tests", "evals/tests"]
+# importlib mode lets each package keep a plain (non-package) tests/ dir, so the
+# four tests/ directories do not collide as a single top-level "tests" module.
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib"

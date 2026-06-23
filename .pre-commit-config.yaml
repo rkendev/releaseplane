@@ -1,0 +1,47 @@
+# Pre-commit hooks for ReleasePlane.
+#
+# The banned-words hook is the project's house-style guard. It runs only on
+# top-level docs (README.md, docs/*.md, BUSINESS_CASE.md). Code and tests are
+# excluded because legitimate uses of e.g. "leverage" occur in finance contexts.
+#
+# Banned set is sourced from the user's standing feedback memory
+# (feedback_no_ai_slop): em-dashes, "in order to", "it's worth noting that",
+# robust, leverage, seamless, holistic, delve, foster.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.13.0
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - pydantic>=2.10
+          - fastapi>=0.115
+        # Source only: tests/ dirs are not packages (importlib mode), and
+        # type-checking them as a single "tests" module collides across packages.
+        files: ^(control-plane|gateway|evals|sdk)/src/
+
+  - repo: local
+    hooks:
+      - id: banned-words
+        name: banned-words guard (docs only)
+        entry: python tools/banned_words.py
+        language: python
+        files: ^(README\.md|docs/.*\.md)$
+        pass_filenames: true

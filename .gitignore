@@ -1,0 +1,49 @@
+# ReleasePlane .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual envs
+.venv/
+venv/
+
+# uv
+.python-version
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets - never commit
+.env
+.env.*
+!.env.example
+infra/secrets/*
+!infra/secrets/.gitkeep
+
+# Eval generator output that we DO commit (do not ignore)
+# evals/datasets/  -- intentionally tracked
+
+# Eval run artifacts (committed via MinIO, not git)
+evals/_runs/
+
+# Local-only docker overrides
+docker-compose.override.yml

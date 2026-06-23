@@ -1,0 +1,62 @@
+# ReleasePlane: AP invoice extraction prompt, v1.
+#
+# Schemas are sourced from Pydantic v2 models in examples/invoice_extraction/models.py.
+# JSON Schema is auto-generated; this file references the model class paths.
+#
+# ADRs:
+#   - docs/ADR/0002-pydantic-v2-as-schema-source.md
+#   - docs/ADR/0003-three-axis-eval.md
+#   - docs/ADR/0004-arithmetic-gate-as-policy-v1.md
+
+name: invoice-extraction
+version: v1
+team: ap-platform
+use_case: ap_invoice_extraction
+status: draft
+created_by: releaseplane-bootstrap
+
+# Schemas. Both reference Pydantic v2 classes; JSON Schema is generated at load time.
+variables_schema:
+  source: examples.invoice_extraction.models:InvoiceVariables
+
+output_schema:
+  source: examples.invoice_extraction.models:InvoiceExtraction
+
+# Linked configuration.
+model_config_ref: v1_default        # see infra/model_configs/v1_default.yaml
+policy_bundle_ref: invoice_v1       # see policies registered at control-plane bootstrap
+
+# The system prompt establishes the role and the contract.
+system_prompt: |
+  You extract structured data from Accounts Payable invoices. You return a single
+  JSON object conforming to the InvoiceExtraction schema provided in the tool
+  contract. You do not return prose, commentary, or markdown. You do not fabricate
+  fields. If a field is genuinely absent from the invoice, set it to a defensible
+  default (empty string for payment_terms, an empty array is not permitted for
+  line_items - all valid invoices have at least one line item).
+
+  Arithmetic must be consistent:
+    - sum(line_items[i].qty * line_items[i].unit_price) equals subtotal
+    - subtotal + tax equals total
+  within +/- 0.01 currency units. If your computed values disagree, the response
+  will be rejected by the policy gate.
+
+# The developer prompt carries the per-request payload.
+developer_prompt: |
+  Extract the invoice fields from the following PDF text and return a single
+  InvoiceExtraction JSON object.
+
+  Invoice text:
+  ----
+  {{ invoice_pdf_text }}
+  ----
+
+# Notes for prompt regression testing.
+regression_notes: |
+  Known sensitive cases in evals/datasets/invoice_v1/:
+    - case_03 (Tier 1): single line item, baseline pass.
+    - case_14 (Tier 2): multi-line with discount row; historical arithmetic-failure
+      regression candidate. This case is the demo headline (docs/DEMO.md).
+    - case_21 (Tier 2): vendor with leading zeros in invoice_number; OCR confuses
+      0 / O. Checksum-exact-match catches.
+    - case_27 (Tier 3): handwritten annotations on subtotal row. Monitored only.

@@ -1,0 +1,21 @@
+# ReleasePlane v1 model config.
+#
+# Pinned to an exact model version string per ADR 0001 lineage (silent model
+# retirement is one of the named failure modes in Use_Case.txt). The version
+# string here drives the value of model_configs.model_version_pin in Postgres.
+#
+# Updating this file does not in itself promote a new release. The control-plane
+# treats this YAML as the seed for a new model_configs row; promoting a release
+# that references the new row goes through the same gate as a prompt change.
+
+name: v1_default
+provider: claude
+model_name: claude-sonnet-4-6
+model_version_pin: "claude-sonnet-4-6"      # exact string; gateway rejects on resolution mismatch
+temperature: 0.0                            # deterministic extraction
+max_tokens: 4096
+timeout_ms: 30000
+tool_mode: structured_output                # routes to the adapter's generate_structured() path
+cost_per_1k_input_tokens_usd: 3.00          # [volatile: 2026-06-23] LABEL BUG: value is per-MILLION ($3.00/MTok), not per-1k; verified Sonnet 4.6 rate; fix field name or value before any dashboard read. See substrate_change_2026-06-23.md.
+cost_per_1k_output_tokens_usd: 15.00        # [volatile: 2026-06-23] LABEL BUG: value is per-MILLION ($15.00/MTok), not per-1k. Same fix.
+active: true

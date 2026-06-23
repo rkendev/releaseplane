@@ -1,0 +1,18 @@
+[project]
+name = "releaseplane-evals"
+version = "0.0.0"
+description = "Evaluation harness: datasets, metrics, runner, promotion gate."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.10",
+    "httpx>=0.28",
+    "fpdf2>=2.8",
+    "boto3>=1.35",      # MinIO S3 client
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
