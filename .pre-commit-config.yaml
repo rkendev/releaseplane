@@ -34,6 +34,9 @@ repos:
           - pydantic>=2.10
           - fastapi>=0.115
           - sqlalchemy>=2.0
+          - greenlet>=3.0
+          - alembic>=1.13
+          - types-PyYAML
           - prometheus-client>=0.21
           - opentelemetry-api>=1.28
           - opentelemetry-sdk>=1.28
