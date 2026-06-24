@@ -1,8 +1,10 @@
-# Minimal CI: run the same gates as the local pre-commit and `make check` on
-# every push to main and every pull request targeting main. Lint, type-check,
-# and unit tests only. No Docker, no live API calls, no secrets: the cost-delta
-# probe lives outside pytest's testpaths and skips when ANTHROPIC_API_KEY is
-# unset, which it always is here.
+# CI: run the same gates as the local pre-commit and `make check` on every push
+# to main and every pull request targeting main. Lint, type-check, and tests.
+# A Postgres service backs the control-plane integration tests; the unit tests
+# stay database-free. REQUIRE_DB=1 turns a missing DATABASE_URL into a hard error
+# so the integration tests can never skip unnoticed. No live API calls, no
+# secrets: the cost-delta probe lives outside pytest's testpaths and skips when
+# ANTHROPIC_API_KEY is unset, which it always is here.
 name: CI
 
 on:
@@ -14,6 +16,29 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
+
+    env:
+      # Inline credentials match the service below; no secret file in CI, so the
+      # engine reads the password from the URL.
+      DATABASE_URL: postgresql+asyncpg://releaseplane:releaseplane@localhost:5432/releaseplane
+      REQUIRE_DB: "1"
+
+    services:
+      postgres:
+        # Pinned to the same digest as the dev-stack compose for parity.
+        image: postgres:17-alpine@sha256:dc17045ccfd343b49600570ea734b9c4991cf1c3f3302e67df51e3b402dd55c4
+        env:
+          POSTGRES_DB: releaseplane
+          POSTGRES_USER: releaseplane
+          POSTGRES_PASSWORD: releaseplane
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U releaseplane -d releaseplane"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v7
 
@@ -34,6 +59,8 @@ jobs:
       - name: Pre-commit
         run: uv run pre-commit run --all-files
 
-      # ruff + mypy on the source, then pytest with the test-count summary.
+      # ruff + mypy on the source, then pytest. The integration tests build the
+      # schema against the Postgres service and exercise the registry and
+      # promote routes; unit tests run without a database.
       - name: make check
         run: make check
