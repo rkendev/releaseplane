@@ -4,7 +4,8 @@ The password is read from a mounted secret file (DATABASE_PASSWORD_FILE) so it
 never lands in the connection URL or an env value, matching the lifespan loader
 in app.py. The async engine and sessionmaker are created from DATABASE_URL; the
 get_session dependency yields a request-scoped AsyncSession from the sessionmaker
-that app.py stores on app.state.
+that app.py stores on app.state. SessionDep is the Annotated alias routes use so
+the dependency reads cleanly and avoids a call in an argument default.
 """
 
 from __future__ import annotations
@@ -12,8 +13,9 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -47,7 +49,20 @@ def make_sessionmaker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
-    """FastAPI dependency: yield a session from the app-state sessionmaker."""
-    sessionmaker: async_sessionmaker[AsyncSession] = request.app.state.sessionmaker
+    """FastAPI dependency: yield a session from the app-state sessionmaker.
+
+    Returns 503 when no database is configured (no DATABASE_URL), so registry
+    routes fail loud instead of raising an opaque attribute error.
+    """
+    sessionmaker: async_sessionmaker[AsyncSession] | None = getattr(
+        request.app.state, "sessionmaker", None
+    )
+    if sessionmaker is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="database not configured"
+        )
     async with sessionmaker() as session:
         yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
