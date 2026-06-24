@@ -1,0 +1,8 @@
+# Keep the eval dataset byte-identical across platforms.
+#
+# Normalize tracked text to LF so the generator's byte-determinism guarantee
+# holds on a Windows checkout (where core.autocrlf would otherwise rewrite line
+# endings). Mark PDFs binary so git never line-normalizes them.
+
+* text=auto eol=lf
+*.pdf binary

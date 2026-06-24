@@ -1,0 +1,39 @@
+# Minimal CI: run the same gates as the local pre-commit and `make check` on
+# every push to main and every pull request targeting main. Lint, type-check,
+# and unit tests only. No Docker, no live API calls, no secrets: the cost-delta
+# probe lives outside pytest's testpaths and skips when ANTHROPIC_API_KEY is
+# unset, which it always is here.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Pinned to the exact latest release: setup-uv has no moving v8 major tag
+      # yet (bare tags stop at v7). Switch to @v8 once that tag ships.
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.2.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync
+
+      # Full-tree hooks (yaml, eof, trailing-whitespace, ruff, mypy,
+      # banned-words). The mypy hook builds its own env from the config's
+      # additional_dependencies, so nothing extra is installed here.
+      - name: Pre-commit
+        run: uv run pre-commit run --all-files
+
+      # ruff + mypy on the source, then pytest with the test-count summary.
+      - name: make check
+        run: make check
