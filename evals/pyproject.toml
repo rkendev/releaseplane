@@ -8,6 +8,7 @@ dependencies = [
     "httpx>=0.28",
     "fpdf2>=2.8",
     "boto3>=1.35",      # MinIO S3 client
+    "jsonschema>=4.20", # schema-validity metric validates output against the release schema
 ]
 
 [project.optional-dependencies]

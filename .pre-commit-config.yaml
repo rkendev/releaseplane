@@ -38,6 +38,7 @@ repos:
           - greenlet>=3.0
           - alembic>=1.13
           - types-PyYAML
+          - types-jsonschema
           - prometheus-client>=0.21
           - opentelemetry-api>=1.28
           - opentelemetry-sdk>=1.28
