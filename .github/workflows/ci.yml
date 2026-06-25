@@ -60,7 +60,15 @@ jobs:
         run: uv run pre-commit run --all-files
 
       # ruff + mypy on the source, then pytest. The integration tests build the
-      # schema against the Postgres service and exercise the registry and
-      # promote routes; unit tests run without a database.
-      - name: make check
-        run: make check
+      # schema against the Postgres service and exercise the registry, promote,
+      # and gateway /invoke routes (DummyProvider); unit tests run without a
+      # database. The grep guard fails the run if any test reaches the Anthropic
+      # API: Phase 3 must make zero live calls.
+      - name: make check (zero API calls)
+        run: |
+          set -o pipefail
+          make check 2>&1 | tee make-check.log
+          if grep -qi "api.anthropic.com" make-check.log; then
+            echo "a test reached api.anthropic.com; Phase 3 must make zero live calls"
+            exit 1
+          fi
