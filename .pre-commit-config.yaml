@@ -33,6 +33,7 @@ repos:
         additional_dependencies:
           - pydantic>=2.10
           - fastapi>=0.115
+          - anthropic>=0.40
           - sqlalchemy>=2.0
           - greenlet>=3.0
           - alembic>=1.13
