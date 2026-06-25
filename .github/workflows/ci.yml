@@ -53,6 +53,18 @@ jobs:
       - name: Install dependencies
         run: uv sync
 
+      # Apply the migrations to the clean service Postgres, then assert the
+      # models and the migration history agree. `alembic check` exits non-zero
+      # if autogenerate would emit any operation, so a model added without a
+      # matching migration fails CI. Runs before `make check`: the test suite's
+      # create_all is additive (checkfirst), so it is a no-op against the
+      # migrated schema and the integration tests then run on the real DDL.
+      - name: Migrations apply and match models (no drift)
+        working-directory: control-plane
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+
       # Full-tree hooks (yaml, eof, trailing-whitespace, ruff, mypy,
       # banned-words). The mypy hook builds its own env from the config's
       # additional_dependencies, so nothing extra is installed here.

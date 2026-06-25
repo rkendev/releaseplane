@@ -195,6 +195,31 @@ eval_results          (id, run_id, case_id, metric_name, metric_value, pass_fail
 policy_events         (id, request_id, rule_id, outcome, detail_json, created_at)
 ```
 
+### As built (Phase 4)
+
+Phase 4 realizes the four `eval_*` tables as SQLAlchemy 2.0 models with Alembic
+migration `0002` (`policy_events` stays deferred to Phase 5). Notes on the
+realized shapes:
+
+- Primary keys are UUIDs (`gen_random_uuid()` server default), as in the control
+  tables. `eval_runs.status` is a Postgres enum (`eval_run_status`) with values
+  running, succeeded, failed, created and dropped explicitly in the migration so
+  `downgrade base` leaves no orphaned type.
+- `eval_cases` carries one column beyond the sketch: `input_text`. `input_path`
+  keeps the dataset-relative source artifact (e.g. `case_14.pdf`) for provenance,
+  while `input_text` holds the perfect-OCR rendering the runner feeds to the
+  gateway as `invoice_pdf_text`; the runner needs the text inline rather than a
+  path to re-read. Unique `(dataset_id, input_path)` makes the loader idempotent.
+- `eval_runs` carries one column beyond the sketch: `summary_json`. It holds the
+  per-tier, per-metric pass rates computed at finish time so the promotion gate
+  enforces the Tier-1/Tier-2 thresholds without re-aggregating the per-case rows.
+  It is nullable while a run is in flight.
+- `eval_results` grain is (run, case, metric) per the column list, so a 30-case
+  run over the three metrics writes 90 rows. `metric_value` is the numeric score
+  (1.0/0.0 for the binary v1 metrics), `pass_fail` is the gating boolean, and
+  `notes` is JSONB holding the scorer's per-case detail.
+- `eval_datasets` is unique by `name`, so reloading a dataset is idempotent.
+
 ## Migrations
 
 Alembic drives the schema. The async engine cannot run the migration context
@@ -207,19 +232,22 @@ the password comes from a mounted secret).
 Run from the `control-plane` directory:
 
 ```
-uv run alembic upgrade head     # create the five tables and the release_stage enum
-uv run alembic downgrade base   # drop them cleanly, including the enum type
+uv run alembic upgrade head     # create all tables and the two enum types
+uv run alembic downgrade base   # drop them cleanly, including the enum types
 ```
 
-The initial migration creates and drops the `release_stage` enum explicitly, so
-`downgrade base` leaves no orphaned type behind. CI runs the integration tests
-against a Postgres service; the test schema is built from the same models.
+`0001` creates and drops the `release_stage` enum explicitly and `0002` does the
+same for `eval_run_status`, so `downgrade base` leaves no orphaned type behind.
+CI runs the integration tests against a Postgres service; the test schema is
+built from the same models.
 
-CI builds that test schema with `Base.metadata.create_all`, not by running the
-Alembic migrations, so a model change that lacks a matching migration would pass
-CI while breaking a real `alembic upgrade`. Before Phase 4 adds the eval-table
-migrations, CI should run `alembic upgrade head` against the service and assert
-that autogenerate produces no diff (`alembic check`), closing that gap.
+CI builds that test schema with `Base.metadata.create_all` for the test session,
+which on its own would let a model change that lacks a matching migration pass CI
+while breaking a real `alembic upgrade`. Phase 4 closes that gap: CI runs
+`alembic upgrade head` against the service Postgres and then `alembic check`,
+which exits non-zero if autogenerate would emit any operation. A model without a
+matching migration now fails CI. The migration step runs before the test suite,
+so `create_all` (checkfirst) is a no-op against the already-migrated schema.
 
 ## Adapter Protocol
 
