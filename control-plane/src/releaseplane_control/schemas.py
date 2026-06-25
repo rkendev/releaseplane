@@ -151,3 +151,24 @@ class ReleaseRead(BaseModel):
     created_at: datetime
     activated_at: datetime | None
     archived_at: datetime | None
+
+
+class ResolvedReleaseRead(BaseModel):
+    """The active release for a prompt, flattened for the execution plane.
+
+    The gateway resolves a prompt name to exactly one active release and needs
+    the prompt text, the variable and output schemas, and the model parameters in
+    a single response. This composes those fields across the release, its prompt
+    version and definition, and the referenced model config so the gateway makes
+    one call rather than walking the registry.
+    """
+
+    release_id: uuid.UUID
+    prompt_version_id: uuid.UUID
+    prompt_name: str
+    use_case: str
+    system_prompt: str
+    developer_prompt: str
+    variables_schema_json: dict[str, Any]
+    output_schema_json: dict[str, Any]
+    model: ModelConfigRead

@@ -14,17 +14,30 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models
 from ..db import SessionDep
 from ..models import ReleaseStage
-from ..schemas import ReleaseCreate, ReleaseRead
+from ..schemas import ModelConfigRead, ReleaseCreate, ReleaseRead, ResolvedReleaseRead
 from ..services.eval_gate import eval_gate_ok
 from ..services.state_machine import next_promote_stage
 
 router = APIRouter(prefix="/releases", tags=["releases"])
+
+
+def _active_unarchived() -> list[ColumnElement[bool]]:
+    """The canonical 'currently serving' predicate, shared to avoid drift.
+
+    A release is the live one for its prompt when it is in the active stage and
+    has not been archived by a later promotion. Both the resolve endpoint and the
+    supersede step filter on exactly this pair.
+    """
+    return [
+        models.Release.stage == ReleaseStage.active,
+        models.Release.archived_at.is_(None),
+    ]
 
 
 async def _archive_prior_active(session: AsyncSession, release: models.Release) -> None:
@@ -42,9 +55,8 @@ async def _archive_prior_active(session: AsyncSession, release: models.Release) 
         select(models.Release)
         .join(models.PromptVersion, models.Release.prompt_version_id == models.PromptVersion.id)
         .where(
+            *_active_unarchived(),
             models.PromptVersion.prompt_id == prompt_version.prompt_id,
-            models.Release.stage == ReleaseStage.active,
-            models.Release.archived_at.is_(None),
             models.Release.id != release.id,
         )
     )
@@ -83,6 +95,75 @@ async def create_release(body: ReleaseCreate, session: SessionDep) -> models.Rel
 async def list_releases(session: SessionDep) -> Sequence[models.Release]:
     result = await session.scalars(select(models.Release).order_by(models.Release.created_at))
     return result.all()
+
+
+def _resolve_select() -> (
+    Select[tuple[models.Release, models.PromptVersion, models.PromptDefinition, models.ModelConfig]]
+):
+    """Join a release to its prompt version, definition, and model config."""
+    return (
+        select(models.Release, models.PromptVersion, models.PromptDefinition, models.ModelConfig)
+        .join(models.PromptVersion, models.Release.prompt_version_id == models.PromptVersion.id)
+        .join(
+            models.PromptDefinition,
+            models.PromptVersion.prompt_id == models.PromptDefinition.id,
+        )
+        .join(models.ModelConfig, models.Release.model_config_id == models.ModelConfig.id)
+    )
+
+
+def _compose_resolved(
+    release: models.Release,
+    version: models.PromptVersion,
+    definition: models.PromptDefinition,
+    model_config: models.ModelConfig,
+) -> ResolvedReleaseRead:
+    return ResolvedReleaseRead(
+        release_id=release.id,
+        prompt_version_id=version.id,
+        prompt_name=definition.name,
+        use_case=definition.use_case,
+        system_prompt=version.system_prompt,
+        developer_prompt=version.developer_prompt,
+        variables_schema_json=version.variables_schema_json,
+        output_schema_json=version.output_schema_json,
+        model=ModelConfigRead.model_validate(model_config),
+    )
+
+
+@router.get("/active", response_model=ResolvedReleaseRead)
+async def resolve_active_release(prompt_name: str, session: SessionDep) -> ResolvedReleaseRead:
+    """Resolve the single active release for a prompt name (404 if none).
+
+    Declared before /{release_id} so the literal path is not parsed as a UUID.
+    Filtered by the canonical active-and-unarchived predicate, so the execution
+    plane gets everything it needs to render and call in one response.
+    """
+    stmt = _resolve_select().where(
+        *_active_unarchived(), models.PromptDefinition.name == prompt_name
+    )
+    row = (await session.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND, f"no active release for prompt {prompt_name!r}"
+        )
+    release, version, definition, model_config = row
+    return _compose_resolved(release, version, definition, model_config)
+
+
+@router.get("/{release_id}/resolved", response_model=ResolvedReleaseRead)
+async def resolve_release_by_id(release_id: uuid.UUID, session: SessionDep) -> ResolvedReleaseRead:
+    """Resolve a specific release by id, regardless of stage (the /invoke override).
+
+    Unlike the active resolver this applies no stage filter: an operator pinning a
+    release_id is choosing it explicitly, including a draft or candidate.
+    """
+    stmt = _resolve_select().where(models.Release.id == release_id)
+    row = (await session.execute(stmt)).first()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"no release with id {release_id}")
+    release, version, definition, model_config = row
+    return _compose_resolved(release, version, definition, model_config)
 
 
 @router.get("/{release_id}", response_model=ReleaseRead)
