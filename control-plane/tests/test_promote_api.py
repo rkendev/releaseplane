@@ -19,6 +19,16 @@ VERSION_BASE = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _eval_gate_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default the eval gate off: these tests cover the structural promote rules.
+
+    The gate is on by default from Phase 4; a test that exercises it (e.g.
+    test_eval_gate_enforced_blocks) re-enables it explicitly.
+    """
+    monkeypatch.setenv("EVAL_GATE_ENFORCED", "false")
+
+
 def _scaffold(client: TestClient) -> dict[str, str]:
     """Create a prompt with two versions, a model config, and a policy bundle."""
     mc = client.post("/model-configs/seed").json()

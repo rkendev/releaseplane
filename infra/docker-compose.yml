@@ -91,6 +91,9 @@ services:
       DATABASE_URL: postgresql+asyncpg://releaseplane@postgres:5432/releaseplane
       DATABASE_PASSWORD_FILE: /run/secrets/postgres_password
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      # The eval gate is on by default from Phase 4; stated here for visibility.
+      # A promotion needs a recent passing eval run (see docs/EVALUATION.md).
+      EVAL_GATE_ENFORCED: "true"
     secrets:
       - postgres_password
     # The build context is ../control-plane, so the seed YAML (under infra/) is

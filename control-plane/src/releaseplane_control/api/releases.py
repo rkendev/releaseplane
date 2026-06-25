@@ -178,10 +178,11 @@ async def get_release(release_id: uuid.UUID, session: SessionDep) -> models.Rele
 async def promote_release(release_id: uuid.UUID, session: SessionDep) -> models.Release:
     """Advance a release one hop along the forward promotion path.
 
-    Enforces the structural rules now: a legal forward transition must exist, the
+    Enforces the structural rules: a legal forward transition must exist, the
     release must reference a valid model config, immutability is preserved (only
     the stage moves), and entering active supersedes the prior active release.
-    The eval-gate check is the Phase 4 seam, bypassed by default in Phase 2.
+    The eval gate then requires a recent passing eval run (on by default from
+    Phase 4); set EVAL_GATE_ENFORCED=false to bypass it.
     """
     release = await session.get(models.Release, release_id)
     if release is None:
@@ -200,7 +201,7 @@ async def promote_release(release_id: uuid.UUID, session: SessionDep) -> models.
             status.HTTP_409_CONFLICT, "release does not reference a valid model config"
         )
 
-    gate = eval_gate_ok(release, target)
+    gate = await eval_gate_ok(session, release, target)
     if not gate.ok:
         raise HTTPException(status.HTTP_409_CONFLICT, f"promotion blocked: {gate.reason}")
 
