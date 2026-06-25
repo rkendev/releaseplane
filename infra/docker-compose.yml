@@ -93,6 +93,12 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
     secrets:
       - postgres_password
+    # The build context is ../control-plane, so the seed YAML (under infra/) is
+    # not in the image. Mount the canonical file read-only at the default
+    # MODEL_CONFIG_SEED_PATH (relative to WORKDIR /app) so POST /model-configs/seed
+    # resolves in-container without baking a copy in and risking drift.
+    volumes:
+      - ../infra/model_configs:/app/infra/model_configs:ro
     depends_on:
       postgres:
         condition: service_healthy

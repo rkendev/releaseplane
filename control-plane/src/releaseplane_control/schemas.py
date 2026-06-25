@@ -172,3 +172,72 @@ class ResolvedReleaseRead(BaseModel):
     variables_schema_json: dict[str, Any]
     output_schema_json: dict[str, Any]
     model: ModelConfigRead
+
+
+# --- eval datasets / cases --------------------------------------------------
+
+
+class EvalCaseCreate(BaseModel):
+    """One golden case in a dataset-load payload.
+
+    expected_json is the ground-truth extraction (decimals and dates already
+    rendered as strings, matching the committed JSON). input_text is the OCR
+    rendering the runner feeds to the gateway; input_path is the source artifact
+    kept for provenance and as the per-dataset natural key.
+    """
+
+    input_path: str = Field(..., min_length=1, max_length=256)
+    input_text: str = Field(..., min_length=1)
+    expected_json: dict[str, Any]
+    tier: int = Field(..., ge=1, le=3)
+    metadata_json: dict[str, Any] | None = None
+
+
+class EvalDatasetCreate(BaseModel):
+    """Load payload: dataset metadata plus all of its cases.
+
+    The control plane stores this verbatim; it has no knowledge of invoices or
+    the generator, keeping the plane separation. row_count is server-derived from
+    the case list rather than client-supplied.
+    """
+
+    name: str = Field(..., min_length=1, max_length=200)
+    domain: str = Field(..., min_length=1, max_length=200)
+    source: str = Field(..., min_length=1, max_length=256)
+    generator_seed: int
+    cases: list[EvalCaseCreate] = Field(..., min_length=1)
+
+
+class EvalDatasetRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    name: str
+    domain: str
+    source: str
+    row_count: int
+    generator_seed: int
+
+
+class EvalCaseRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    dataset_id: uuid.UUID
+    input_path: str
+    input_text: str
+    expected_json: dict[str, Any]
+    tier: int
+    metadata_json: dict[str, Any] | None
+
+
+class EvalDatasetLoadResult(BaseModel):
+    """Outcome of a load: the dataset plus how many cases were newly written.
+
+    cases_created is 0 on an idempotent reload, so a caller can tell a fresh load
+    from a no-op without diffing the case list.
+    """
+
+    dataset: EvalDatasetRead
+    cases_total: int
+    cases_created: int

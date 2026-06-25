@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 from sqlalchemy import text
 
-from .api import model_configs, policy_bundles, prompts, releases
+from .api import eval_datasets, model_configs, policy_bundles, prompts, releases
 from .db import make_engine, make_sessionmaker
 from .telemetry import configure_tracing
 
@@ -56,6 +56,7 @@ app.include_router(prompts.router)
 app.include_router(model_configs.router)
 app.include_router(policy_bundles.router)
 app.include_router(releases.router)
+app.include_router(eval_datasets.router)
 
 
 @app.get("/healthz")
