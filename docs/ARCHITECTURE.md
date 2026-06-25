@@ -249,6 +249,36 @@ which exits non-zero if autogenerate would emit any operation. A model without a
 matching migration now fails CI. The migration step runs before the test suite,
 so `create_all` (checkfirst) is a no-op against the already-migrated schema.
 
+## Eval runner and gate (Phase 4)
+
+The eval harness keeps the planes separated. The `eval_*` tables and the gate
+live in the control plane; the runner and the metric scorers live in the evals
+package; neither plane imports the other's internals.
+
+- The runner (`releaseplane_evals.runner.run_eval`, driven by the evals CLI)
+  resolves the release, reads the dataset cases, and for each case calls the
+  gateway `POST /invoke` (decision D-EVAL-CALL: it scores the real resolve ->
+  render -> provider path). It scores the output with the three pure metric
+  scorers and writes results back through the control-plane API.
+- Persistence is two calls: `POST /eval-runs` opens a run in `running`, then
+  `POST /eval-runs/{id}/complete` writes all results and stamps the terminal
+  status, `finished_at`, and the per-tier `summary_json` in one transaction.
+  Grain is (run, case, metric), so a 30-case run writes 90 `eval_results`. The
+  per-case model output rides on the schema-validity row's `notes` as the
+  artifact (decision D-ARTIFACTS: Postgres JSONB; MinIO archival is deferred).
+- The gate (`services/eval_gate.eval_gate_ok`) is called by the promote
+  endpoint. It takes the most recent run for the release and blocks unless it
+  succeeded, finished within `EVAL_STALENESS_HOURS`, and met the Tier-1/Tier-2
+  thresholds read from `summary_json`. `EVAL_GATE_ENFORCED` defaults on. The
+  metric-name keys in `summary_json` are a cross-plane string contract, restated
+  in the gate so the control plane does not import the evals package.
+- The runner uses whatever provider the gateway is configured with, so the test
+  suite runs it on DummyProvider (zero API calls) and the one live-spend path is
+  the gated `evals/scripts/run_eval_live.py` against a claude-provider gateway.
+- The control plane exports eval metrics on `/metrics`
+  (`control_plane_eval_runs_total`, `control_plane_eval_pass_rate`), which the
+  ReleasePlane Eval Grafana dashboard reads.
+
 ## Adapter Protocol
 
 ```python

@@ -4,7 +4,7 @@ The demo is the acceptance criterion for v1. Every other artifact is in support 
 
 ## The headline moment
 
-A prompt change is merged. CI fires the eval run. The arithmetic gate catches a hallucinated total on Tier-2 case #14: model returns `total = 1,257.50` while `subtotal (1,150.00) + tax (97.50) = 1,247.50`. JSON Schema passed. The release is blocked before the wrong total can post to the ledger.
+A prompt change produces a new release. The eval runner scores it against the 30-case golden dataset. The arithmetic gate catches a hallucinated total on Tier-2 case #14: model returns `total = 1,257.50` while `subtotal (1,150.00) + tax (97.50) = 1,247.50`. JSON Schema passed. Promotion is blocked with a 409 before the wrong total can post to the ledger.
 
 This is the only moment that has to land. Everything else is framing.
 
@@ -14,7 +14,7 @@ This is the only moment that has to land. Everything else is framing.
 
 Show: `substrate_change_2026-06-23.md` (the verdict table and the decision) and the CHANGELOG entry. Point out that production stays pinned to `claude-sonnet-4-6`, so the inference layer never moved; what moved was the model reasoning about the design.
 
-Builder's note (do not voice over, keep honest for the panel): in v1 the catch and the re-validation are a documented process step, not yet automated. Detection was manual via the session model echo (Substrate Pin), and the verdict re-validation is a council pass, not a live eval re-run. Automating both (a CI authoring-substrate pin check, and re-running the eval gate on a model change once the dataset exists) is roadmap, tracked as U4 and Phase 4. Do not claim a live automated eval re-run until `evals/datasets/invoice_v1/` exists.
+Builder's note (do not voice over, keep honest for the panel): the eval harness and the gate are built (Phase 4). The arithmetic-gate catch is real and is a committed regression test (`test_eval_gate_regression`), proven by injecting the bad case_14 output through a scripted provider, so it runs offline. CI itself makes zero live API calls; it runs the harness on DummyProvider. The real per-tier baseline comes from one deliberate gated live run (`evals/scripts/run_eval_live.py`) against the pinned Sonnet 4.6. The substrate-change re-validation in the second beat is still a documented council pass, not an automated eval re-run.
 
 ## Script
 
@@ -32,9 +32,9 @@ Show: `releaseplane releases list`. Active release is `invoice-extraction@v1.0.3
 
 ### 1:45 - 3:00: The gate
 
-> "CI runs the eval harness against the 30-case golden dataset. Three deterministic metrics: JSON Schema validity, arithmetic consistency, checksum exact-match. Tier-1 and Tier-2 cases gate promotion. Tier-3 is monitored."
+> "The eval runner scores the release against the 30-case golden dataset. Three deterministic metrics: JSON Schema validity, arithmetic consistency, checksum exact-match. Tier-1 and Tier-2 cases gate promotion. Tier-3 is monitored."
 
-Show: CI logs streaming. Schema: 30/30 pass. Checksum: 30/30 pass. Arithmetic: 29/30 pass. Case #14 fails. Click into the failure.
+Show: the run summary (or the ReleasePlane Eval dashboard). Schema: 30/30 pass. Checksum: 30/30 pass. Arithmetic: 29/30 pass. Case #14 fails. Click into the failing `eval_results` row.
 
 > "Subtotal plus tax equals 1,247.50. The model returned 1,257.50. The arithmetic check caught what the schema could not."
 
@@ -42,9 +42,9 @@ Show: the promotion API rejecting `POST /releases/{id}/promote` with a 409 `Prom
 
 ### 3:00 - 4:00: The audit
 
-> "Every request the gateway processed during the eval run is traced. Jaeger has the full timeline; MinIO has the full request and response payload. The release ID is on every span."
+> "Every request the gateway processed during the eval run is traced. Jaeger has the full timeline; the per-case input and output are stored as JSONB on the eval results. The release ID is on every span."
 
-Show: Jaeger trace for the failed case. Show: the MinIO object. Point out the `releaseplane.release_id` attribute. Note the model version pin and the prompt version checksum.
+Show: Jaeger trace for the failed case. Show: the failing case's `eval_results` row with the model output in `notes`. Point out the `releaseplane.release_id` attribute. Note the model version pin and the prompt version checksum. (Full payload archival to MinIO is reserved for Phase 5.)
 
 ### 4:00 - 5:00: The story
 

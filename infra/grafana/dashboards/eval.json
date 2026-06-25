@@ -1,0 +1,38 @@
+{
+  "uid": "releaseplane-eval",
+  "title": "ReleasePlane Eval",
+  "tags": ["releaseplane", "eval"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-6h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Eval pass rate per release (latest run)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 18, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "control_plane_eval_pass_rate", "legendFormat": "{{release_id}} t{{tier}} {{metric}}" } ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total eval runs",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 9, "w": 6, "x": 18, "y": 0 },
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "blue", "value": null } ] } }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum(control_plane_eval_runs_total)", "legendFormat": "runs" } ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Eval runs over time (by status)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 9 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (status) (control_plane_eval_runs_total)", "legendFormat": "{{status}}" } ]
+    }
+  ]
+}

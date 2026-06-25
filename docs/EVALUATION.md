@@ -76,17 +76,20 @@ The generator script itself is a portfolio artifact. Hiring managers see the tes
 - Politeness or style. Subjective + qualitative; out of scope.
 - Refusal rate. Reserved for Phase 5 policy expansion.
 
-## Eval lifecycle
+## Eval lifecycle (as built, Phase 4)
 
 ```
-git push -> CI fires evals/runner over the release candidate
-         -> writes eval_results + uploads artifacts to MinIO
-         -> tags the release with metric outcomes
-         -> if gating thresholds met, release.stage transitions to candidate
-         -> operator hits POST /releases/{id}/promote -> active
+operator loads the dataset -> POST /eval-datasets (idempotent)
+runner scores a release    -> for each case: gateway POST /invoke -> three scorers
+                           -> POST /eval-runs + /complete (eval_runs + 90 eval_results)
+gate on promotion          -> POST /releases/{id}/promote checks the latest run:
+                              succeeded, fresh (<= EVAL_STALENESS_HOURS), thresholds met
+                           -> else 409 PromotionBlocked
 ```
 
-Phase 4 wires the GitHub Actions workflow. Phase 0 locks the metric definitions and thresholds above.
+The runner is the evals CLI (`python -m releaseplane_evals.cli run --release-id ... --dataset-id ...`), not CI: CI makes zero live API calls, so the suite drives the runner on DummyProvider and proves the gate with an injected bad output (the committed case_14 regression test). Per-case input/output artifacts land as JSONB on `eval_results` (MinIO archival is deferred to Phase 5). The eval gate is enforced by default (`EVAL_GATE_ENFORCED`, on).
+
+The real baseline numbers come from one deliberate, gated live run against the pinned Sonnet 4.6 (`evals/scripts/run_eval_live.py`), run by an operator against a stack whose gateway uses the claude provider. It skips cleanly without a key and is never run by CI. Phase 0 locks the metric definitions and thresholds above.
 
 ## Future eval axes (deferred)
 

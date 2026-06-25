@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models
 from ..db import SessionDep
+from ..metrics import record_eval_run
 from ..models import EvalRunStatus
 from ..schemas import EvalResultRead, EvalRunComplete, EvalRunCreate, EvalRunRead
 
@@ -78,6 +79,7 @@ async def complete_eval_run(
     run.summary_json = body.summary_json
     await session.commit()
     await session.refresh(run)
+    record_eval_run(str(run.release_id), run.status.value, run.summary_json)
     return run
 
 
