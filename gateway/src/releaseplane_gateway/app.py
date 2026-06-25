@@ -1,23 +1,55 @@
-"""Gateway FastAPI app: health, tracing, metrics.
+"""Gateway FastAPI app: health, tracing, metrics, and the /invoke route.
 
-The provider adapter (the generate_structured Protocol on the Claude path) is
-wired in a later phase; this phase establishes the service surface, tracing, and
-the metrics endpoint. /healthz reports liveness; /metrics exposes Prometheus
-metrics for the dev stack.
+The execution plane resolves the active release for a prompt through the
+control-plane HTTP API, renders the prompt, and calls a provider for structured
+output. The provider is chosen at startup (dummy by default, so nothing needs an
+API key); the control-plane client and resolver live on app state so tests can
+swap in an in-process transport. /healthz reports liveness and /metrics exposes
+Prometheus metrics for the dev stack.
 """
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+import httpx
+from anthropic import Anthropic
 from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 
+from .config import anthropic_api_key, control_plane_url, provider_name
+from .invoke import router as invoke_router
+from .providers import ClaudeProvider, DummyProvider, Provider
+from .resolution import ReleaseResolver
 from .telemetry import configure_tracing
 
 SERVICE_NAME = "gateway"
 
-app = FastAPI(title="ReleasePlane Gateway")
+
+def build_provider() -> Provider:
+    """Select the provider from configuration; dummy keeps startup key-free."""
+    if provider_name() == "claude":
+        return ClaudeProvider(Anthropic(api_key=anthropic_api_key()))
+    return DummyProvider()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    client = httpx.AsyncClient(base_url=control_plane_url())
+    app.state.http_client = client
+    app.state.resolver = ReleaseResolver(client)
+    app.state.provider = build_provider()
+    try:
+        yield
+    finally:
+        await client.aclose()
+
+
+app = FastAPI(title="ReleasePlane Gateway", lifespan=lifespan)
 configure_tracing(app, SERVICE_NAME)
 app.mount("/metrics", make_asgi_app())
+app.include_router(invoke_router)
 
 
 @app.get("/healthz")
