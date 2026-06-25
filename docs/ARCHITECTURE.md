@@ -37,6 +37,59 @@ sequenceDiagram
     SDK-->>App: response
 ```
 
+### Invoke (as built, Phase 3)
+
+`POST /invoke` takes `prompt_name`, `variables`, and an optional `release_id`
+override. The gateway resolves the release through the control-plane HTTP API
+(`GET /releases/active?prompt_name=...`, or `GET /releases/{id}/resolved` for an
+override), which returns the prompt version, its variable and output schemas, and
+the model config in one response. The gateway validates the variables against the
+version's `variables_schema_json`, substitutes `{{ name }}` placeholders in the
+developer prompt, and calls the provider's `generate_structured`. The structured
+object is returned with metadata: release_id, prompt_version_id, model, token
+counts, latency, and a cost estimate.
+
+Resolution reads the registry over HTTP rather than the shared database, so the
+execution plane stays decoupled from the control-plane schema (decision
+D-RESOLVE). The cost is one extra hop and a control-plane-down failure mode,
+surfaced as 503. Templating is a minimal `{{ var }}` substitution validated by
+the version's variable schema (decision D-RENDER); an unprovided placeholder
+fails loud rather than rendering empty.
+
+Two steps in the diagram above are deferred, not built in Phase 3:
+
+- The pre-call and post-call policy checks (prompt-injection regex, JSON-schema
+  and arithmetic-consistency) are Phase 5. Phase 3 relies on structured output
+  for schema validity only and applies no runtime policy to live responses.
+- Full request/response archival to MinIO is deferred (decision D-ARCHIVE);
+  Phase 3 records span metadata and a token and cost summary, not the payload.
+
+### Spans (as built, Phase 3)
+
+Every `/invoke` wraps the provider call in a `gateway.invoke` span carrying the
+GenAI semantic-convention attributes and the release identity:
+
+```
+gen_ai.system                  provider name (claude | dummy)
+gen_ai.request.model           resolved model name
+gen_ai.usage.input_tokens      prompt tokens
+gen_ai.usage.output_tokens     completion tokens
+gen_ai.response.finish_reason  stop reason
+releaseplane.release_id        the audit key (releases.id)
+releaseplane.prompt_version_id resolved prompt version
+releaseplane.use_case          prompt definition use_case
+releaseplane.cost_estimate_usd derived from model_config cost_per_mtok_*
+```
+
+`releaseplane.release_id` is the audit key: it ties any traced call back to the
+exact release, prompt version, model config, and policy bundle in the registry.
+The trace is now demonstrated end to end in Jaeger against the dev stack, which
+closes the Phase 1 item where the span was wired but never shown in the UI. The
+gateway also exports Prometheus metrics (`gateway_invoke_requests_total`,
+`gateway_invoke_latency_seconds`) scraped directly by the dev-stack Prometheus,
+with a Grafana dashboard for request rate, latency quantiles, and error rate by
+provider.
+
 ## Release lifecycle
 
 ```mermaid
@@ -125,6 +178,12 @@ Notes on the realized shapes:
   promote service resolves the prompt through the prompt version and stamps
   `archived_at` on the prior active release. A per-environment dimension waits on
   an `environment` column being added.
+- The one-active invariant assumes promotions are serialized. Two concurrent
+  promotions of different releases for the same prompt could each archive the
+  other's prior active and leave two active rows. The fix is a prompt-scoped
+  advisory lock (`pg_advisory_xact_lock` keyed on the prompt id) around the
+  archive-and-activate step. It is not yet wired; promotions are operator actions
+  and are not concurrent in practice at v1.
 
 ## Data model (ingestion / eval)
 
@@ -156,21 +215,46 @@ The initial migration creates and drops the `release_stage` enum explicitly, so
 `downgrade base` leaves no orphaned type behind. CI runs the integration tests
 against a Postgres service; the test schema is built from the same models.
 
+CI builds that test schema with `Base.metadata.create_all`, not by running the
+Alembic migrations, so a model change that lacks a matching migration would pass
+CI while breaking a real `alembic upgrade`. Before Phase 4 adds the eval-table
+migrations, CI should run `alembic upgrade head` against the service and assert
+that autogenerate produces no diff (`alembic check`), closing that gap.
+
 ## Adapter Protocol
 
 ```python
-class LLMProvider(Protocol):
+class Provider(Protocol):
+    name: str
+
     async def generate_structured(
         self,
         *,
-        prompt_version: PromptVersion,
-        variables: dict[str, Any],
-        model_config: ModelConfig,
-        schema: type[BaseModel],
-    ) -> StructuredResponse: ...
+        system: str,
+        prompt: str,
+        model_config: ModelInvocationConfig,
+        output_schema: dict[str, Any],
+    ) -> StructuredResult: ...
 ```
 
-The schema parameter is a Pydantic v2 model class. The `ClaudeProvider` implementation uses Claude's tool-use path so JSON schema compliance is guaranteed at the provider level, not post-hoc validated.
+`output_schema` is the JSON Schema stored on the prompt version
+(`output_schema_json`), used directly as the tool `input_schema`, so the gateway
+does not import the example Pydantic models at runtime and the registry stays the
+single source of truth. `StructuredResult` carries the parsed object plus the
+model, token counts, latency, and finish reason.
+
+The `ClaudeProvider` uses Claude's tool-use path with a single forced tool call,
+so JSON-schema compliance is guaranteed at the provider level rather than parsed
+post-hoc; it passes `model`, `temperature`, and `max_tokens` through from the
+model config rather than hardcoding them. `DummyProvider` returns a canned
+schema-valid object with no network call and is the default, so CI and the test
+suite make zero API calls. The Anthropic SDK client is synchronous and runs in a
+worker thread to keep the handler async. A second provider is Phase 5.
+
+The original sketch took a `PromptVersion`, raw `variables`, and a Pydantic
+`schema` class. The gateway now does resolution and rendering before the adapter,
+so the adapter takes the already-rendered `prompt` and the stored `output_schema`
+and stays provider-focused.
 
 ## Key tradeoffs
 
