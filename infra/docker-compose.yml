@@ -112,6 +112,9 @@ services:
       CONTROL_PLANE_URL: http://control-plane:8000
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       CLAUDE_API_KEY_FILE: /run/secrets/claude_api_key
+      # dummy by default so the stack runs with zero API spend; set to claude to
+      # route /invoke at the real model (needs a valid key in the secret file).
+      GATEWAY_PROVIDER: dummy
     secrets:
       - claude_api_key
     depends_on:

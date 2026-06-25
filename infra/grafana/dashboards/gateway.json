@@ -1,0 +1,50 @@
+{
+  "uid": "releaseplane-gateway",
+  "title": "ReleasePlane Gateway",
+  "tags": ["releaseplane", "gateway"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Gateway up",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "fieldConfig": { "defaults": { "mappings": [], "thresholds": { "mode": "absolute", "steps": [ { "color": "red", "value": null }, { "color": "green", "value": 1 } ] } }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "up{job=\"gateway\"}", "legendFormat": "gateway" } ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Invoke requests/min (by provider)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "reqpm" }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (provider) (rate(gateway_invoke_requests_total[5m])) * 60", "legendFormat": "{{provider}}" } ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Invoke latency (p50 / p95)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.5, sum(rate(gateway_invoke_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p50" },
+        { "refId": "B", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "histogram_quantile(0.95, sum(rate(gateway_invoke_latency_seconds_bucket[5m])) by (le))", "legendFormat": "p95" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Invoke errors/min (by provider)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "fieldConfig": { "defaults": { "unit": "reqpm" }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (provider) (rate(gateway_invoke_requests_total{outcome=\"error\"}[5m])) * 60", "legendFormat": "{{provider}}" } ]
+    }
+  ]
+}

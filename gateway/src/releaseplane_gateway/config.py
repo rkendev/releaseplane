@@ -24,7 +24,9 @@ def provider_name() -> str:
 
 
 def anthropic_api_key() -> str:
-    key_file = os.environ.get("ANTHROPIC_API_KEY_FILE")
+    # The dev stack mounts the key as a secret file referenced by
+    # CLAUDE_API_KEY_FILE; fall back to the SDK's ANTHROPIC_API_KEY for local use.
+    key_file = os.environ.get("CLAUDE_API_KEY_FILE")
     if key_file and Path(key_file).exists():
         return Path(key_file).read_text(encoding="utf-8").strip()
     return os.environ.get("ANTHROPIC_API_KEY", "")

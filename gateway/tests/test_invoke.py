@@ -173,6 +173,22 @@ def test_invoke_missing_required_variable_returns_422() -> None:
     assert response.status_code == 422
 
 
+def test_invoke_records_prometheus_metrics() -> None:
+    resolver = _FakeResolver(resolved=ResolvedRelease.model_validate(RESOLVED_PAYLOAD))
+    provider = DummyProvider(output=DUMMY_OUTPUT)
+    _install(resolver, provider)
+
+    with TestClient(app) as client:
+        client.post(
+            "/invoke",
+            json={"prompt_name": "invoice-extraction", "variables": {"invoice_pdf_text": "x"}},
+        )
+        metrics = client.get("/metrics").text
+
+    assert 'gateway_invoke_requests_total{outcome="success",provider="dummy"}' in metrics
+    assert "gateway_invoke_latency_seconds_bucket" in metrics
+
+
 @pytest.fixture(autouse=True)
 def _clear_overrides() -> Any:
     yield

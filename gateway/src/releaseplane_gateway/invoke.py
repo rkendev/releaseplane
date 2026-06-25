@@ -10,6 +10,7 @@ so every call is auditable by release in Jaeger.
 
 from __future__ import annotations
 
+import time
 import uuid
 from decimal import Decimal
 from typing import Annotated, Any
@@ -19,6 +20,7 @@ from opentelemetry import trace
 from opentelemetry.trace import Span
 from pydantic import BaseModel, ConfigDict, Field
 
+from .metrics import INVOKE_LATENCY, INVOKE_REQUESTS
 from .providers import Provider, ProviderError
 from .render import RenderError, render
 from .resolution import (
@@ -104,6 +106,20 @@ def _record_release_identity(span: Span, resolved: ResolvedRelease) -> None:
 @router.post("/invoke", response_model=InvokeResponse)
 async def invoke(
     body: InvokeRequest, resolver: ResolverDep, provider: ProviderDep
+) -> InvokeResponse:
+    start = time.perf_counter()
+    outcome = "error"
+    try:
+        response = await _invoke(body, resolver, provider)
+        outcome = "success"
+        return response
+    finally:
+        INVOKE_LATENCY.labels(provider=provider.name).observe(time.perf_counter() - start)
+        INVOKE_REQUESTS.labels(provider=provider.name, outcome=outcome).inc()
+
+
+async def _invoke(
+    body: InvokeRequest, resolver: ReleaseResolver, provider: Provider
 ) -> InvokeResponse:
     resolved = await _resolve(resolver, body)
 
