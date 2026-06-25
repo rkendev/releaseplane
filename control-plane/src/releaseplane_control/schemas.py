@@ -15,11 +15,11 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .models import ReleaseStage
+from .models import EvalRunStatus, ReleaseStage
 
 # --- prompt_definitions -----------------------------------------------------
 
@@ -241,3 +241,59 @@ class EvalDatasetLoadResult(BaseModel):
     dataset: EvalDatasetRead
     cases_total: int
     cases_created: int
+
+
+# --- eval runs / results ----------------------------------------------------
+
+
+class EvalRunCreate(BaseModel):
+    """Open a run for a release over a dataset. The run starts in running."""
+
+    release_id: uuid.UUID
+    dataset_id: uuid.UUID
+
+
+class EvalResultCreate(BaseModel):
+    """One metric outcome the runner computed for one case."""
+
+    case_id: uuid.UUID
+    metric_name: str = Field(..., min_length=1, max_length=64)
+    metric_value: float | None = None
+    pass_fail: bool
+    notes: dict[str, Any] | None = None
+
+
+class EvalRunComplete(BaseModel):
+    """Finalize a run: terminal status, the per-tier summary, and all results.
+
+    status is succeeded or failed; running is not a terminal state. summary_json
+    is the per-tier, per-metric pass-rate structure the promotion gate reads.
+    """
+
+    status: Literal["succeeded", "failed"]
+    summary_json: dict[str, Any]
+    results: list[EvalResultCreate] = Field(default_factory=list)
+
+
+class EvalRunRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    release_id: uuid.UUID
+    dataset_id: uuid.UUID
+    started_at: datetime
+    finished_at: datetime | None
+    status: EvalRunStatus
+    summary_json: dict[str, Any] | None
+
+
+class EvalResultRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    run_id: uuid.UUID
+    case_id: uuid.UUID
+    metric_name: str
+    metric_value: Decimal | None
+    pass_fail: bool
+    notes: dict[str, Any] | None
