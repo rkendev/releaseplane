@@ -318,6 +318,7 @@ def test_invoke_records_prometheus_metrics() -> None:
 
     assert 'gateway_invoke_requests_total{outcome="success",provider="dummy"}' in metrics
     assert "gateway_invoke_latency_seconds_bucket" in metrics
+    assert 'gateway_routing_decisions_total{decision="fallthrough",provider="dummy"}' in metrics
 
 
 def _resolved_with(

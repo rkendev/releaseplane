@@ -71,7 +71,7 @@ The generator script itself is a portfolio artifact. Hiring managers see the tes
 
 ## What we are not measuring at v1
 
-- Latency. Tracked in observability (Prometheus / Grafana), not in the eval gate. Phase 5 introduces latency-aware routing.
+- Latency. Tracked in observability (Prometheus / Grafana), not in the eval gate. Phase 5 added routing by an input-length heuristic plus an optional caller hint; latency- and cost-aware routing remain deferred.
 - Token cost. Tracked per request via OTel attributes, surfaced in Grafana; not gated.
 - Politeness or style. Subjective + qualitative; out of scope.
 - Refusal rate. Reserved for Phase 5 policy expansion.
@@ -86,6 +86,12 @@ gate on promotion          -> POST /releases/{id}/promote checks the latest run:
                               succeeded, fresh (<= EVAL_STALENESS_HOURS), thresholds met
                            -> else 409 PromotionBlocked
 ```
+
+Routing does not apply to eval runs. The runner pins the release by id, and a
+pinned `release_id` never routes (Phase 5), so a release is always scored on its
+own model config, not on whatever a routing rule might divert live traffic to. The
+runtime policy engine likewise applies to `/invoke`; the eval gate uses the same
+arithmetic predicate through the scorer, not the runtime policy path.
 
 The runner is the evals CLI (`python -m releaseplane_evals.cli run --release-id ... --dataset-id ...`), not CI: CI makes zero live API calls, so the suite drives the runner on DummyProvider and proves the gate with an injected bad output (the committed case_14 regression test). Per-case input/output artifacts land as JSONB on `eval_results` (MinIO archival is deferred to Phase 5). The eval gate is enforced by default (`EVAL_GATE_ENFORCED`, on).
 

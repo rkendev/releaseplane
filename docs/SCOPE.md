@@ -21,7 +21,7 @@ Locked 2026-06-23 by the Phase 0 council. Items here are binding for v1.
 - Multi-tenant or per-tenant policy isolation.
 - A web admin UI beyond a single server-rendered list-of-prompts / list-of-releases page with one Promote button.
 - PII redaction policies beyond the prompt-injection regex filter (Phase 4 closes the gap for vendor tax IDs and bank details).
-- Online evaluation, A/B testing, shadow traffic replay.
+- Online evaluation, A/B testing, shadow traffic replay (shadow mode; see below).
 - Cost-aware dynamic routing.
 - LLM-as-judge metrics.
 - Approval workflows or signed policy bundles.
@@ -44,3 +44,18 @@ An out-of-scope item moves in when one of the following holds:
 - A council pass dedicated to that decision ratifies the move with explicit KB and project-doc anchors.
 
 No item moves in by drift.
+
+## Shadow mode (deferred, Phase 5 D5)
+
+Shadow mode would run a candidate release (or a routed alternate provider) against
+live traffic in parallel with the active release, scoring the shadow output without
+serving it, to gather pre-promotion signal on real requests. The Phase 5 entry
+council kept it deferred: the routing engine and the policy engine give the
+per-request signal the demo needs, and shadow mode doubles the live spend on every
+request it shadows.
+
+Trigger to build it: a candidate that passes the offline eval gate still regresses
+on live traffic in a way the gate did not catch, and the regression is one that a
+parallel scored shadow run would have surfaced before promotion. Until then,
+pre-promotion confidence comes from the eval harness on the golden set, not from
+live shadowing.

@@ -26,7 +26,7 @@ from opentelemetry.trace import Span
 from pydantic import BaseModel, ConfigDict, Field
 
 from .config import provider_override
-from .metrics import INVOKE_LATENCY, INVOKE_REQUESTS
+from .metrics import INVOKE_LATENCY, INVOKE_REQUESTS, POLICY_EVENTS, ROUTING_DECISIONS
 from .policies import (
     PolicyOutcome,
     parse_rules,
@@ -298,6 +298,17 @@ async def _invoke(
         status_label = policy_status(outcomes, resolved.policy_bundle.severity_mode)
         span.set_attribute("releaseplane.policy.status", status_label)
         span.set_attribute("releaseplane.policy.failures", sum(1 for o in outcomes if not o.passed))
+
+    ROUTING_DECISIONS.labels(
+        decision="matched" if matched is not None else "fallthrough", provider=provider.name
+    ).inc()
+    for outcome in outcomes:
+        if not outcome.passed:
+            POLICY_EVENTS.labels(
+                check=outcome.check,
+                outcome="failed",
+                severity_mode=resolved.policy_bundle.severity_mode,
+            ).inc()
 
     await _emit_failures(resolver, request_id, outcomes)
 

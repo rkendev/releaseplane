@@ -56,13 +56,41 @@ surfaced as 503. Templating is a minimal `{{ var }}` substitution validated by
 the version's variable schema (decision D-RENDER); an unprovided placeholder
 fails loud rather than rendering empty.
 
-Two steps in the diagram above are deferred, not built in Phase 3:
+The pre-call and post-call policy checks shown in the diagram landed in Phase 5
+(below). Full request/response archival to MinIO is still deferred (decision
+D-ARCHIVE); the gateway records span metadata and a token and cost summary, not the
+payload.
 
-- The pre-call and post-call policy checks (prompt-injection regex, JSON-schema
-  and arithmetic-consistency) are Phase 5. Phase 3 relies on structured output
-  for schema validity only and applies no runtime policy to live responses.
-- Full request/response archival to MinIO is deferred (decision D-ARCHIVE);
-  Phase 3 records span metadata and a token and cost summary, not the payload.
+### Routing, providers, and policy (as built, Phase 5)
+
+Phase 5 makes `/invoke` a real control-plane request rather than a single resolve
+and call:
+
+- **Resolution** also returns the resolved policy bundle and the model config's
+  `provider`, so the gateway carries the rules it will apply and the adapter it will
+  pick (decision D-POLICY-RESOLVE, the same one-hop pattern as D-RESOLVE).
+- **Routing** evaluates the use case's routing rules against a signal built from the
+  request (the input length on `invoice_pdf_text`, an optional caller `routing_hint`,
+  and the use case). A restricted JSON predicate per rule is matched by a pure
+  deterministic matcher, first match by priority, else fallthrough to the release's
+  own model config (ADR 0005). A pinned `release_id` never routes, which is the
+  eval runner's path.
+- **Provider selection** resolves the chosen config's `provider` to an adapter
+  through a registry (Claude, OpenAI, or the offline dummy). `GATEWAY_PROVIDER`, when
+  set, force-overrides the serving provider (the dev stack pins `dummy` for zero
+  spend); unset selects by the config (ADR 0007).
+- **Policy engine** applies the bundle's checks: prompt-injection regex on the input
+  (pre-call), then schema validity and arithmetic consistency on the output
+  (post-call). The arithmetic check imports the same neutral predicate the eval
+  scorer uses (ADR 0004, ADR 0006). A failure emits a `policy_event` and sets
+  `policy_status` (`passed` / `monitored` / `failed`, by the bundle severity mode).
+  v1 never transforms the output: the object is identical between monitor and
+  enforce, only the metadata differs.
+
+The span gains the routing signal, the matched rule, the serving provider, the
+request id, and the policy status; two Prometheus counters
+(`gateway_routing_decisions_total`, `gateway_policy_events_total`) back the routing
+and policy Grafana panels.
 
 ### Spans (as built, Phase 3)
 
@@ -148,6 +176,8 @@ model_configs         (id, name, provider, model_name, model_version_pin,
                        temperature, max_tokens, timeout_ms, tool_mode, active,
                        cost_per_mtok_input_usd, cost_per_mtok_output_usd)
 policy_bundles        (id, name, version, rules_json, severity_mode)
+routing_rules         (id, use_case, predicate_json, target_model_config_id,
+                       priority, created_at)
 releases              (id, prompt_version_id, model_config_id, policy_bundle_id,
                        stage, rollout_percent, created_at, activated_at, archived_at)
 ```
@@ -180,10 +210,14 @@ Notes on the realized shapes:
   an `environment` column being added.
 - The one-active invariant assumes promotions are serialized. Two concurrent
   promotions of different releases for the same prompt could each archive the
-  other's prior active and leave two active rows. The fix is a prompt-scoped
-  advisory lock (`pg_advisory_xact_lock` keyed on the prompt id) around the
-  archive-and-activate step. It is not yet wired; promotions are operator actions
-  and are not concurrent in practice at v1.
+  other's prior active and leave two active rows. Phase 5 wires the fix: a
+  prompt-scoped advisory lock (`pg_advisory_xact_lock` keyed on the prompt id)
+  around the archive-and-activate step, covered by a concurrent-promote test that
+  asserts exactly one active release remains.
+- Phase 5 adds `routing_rules` (Alembic `0003`): a restricted predicate stored as
+  JSONB, a `target_model_config_id` foreign key, and a `priority`. The predicate is
+  validated by `RoutingRulePredicate` on create (ADR 0005); the gateway evaluates it
+  on `/invoke` only.
 
 ## Data model (ingestion / eval)
 
@@ -198,8 +232,12 @@ policy_events         (id, request_id, rule_id, outcome, detail_json, created_at
 ### As built (Phase 4)
 
 Phase 4 realizes the four `eval_*` tables as SQLAlchemy 2.0 models with Alembic
-migration `0002` (`policy_events` stays deferred to Phase 5). Notes on the
-realized shapes:
+migration `0002`. Phase 5 adds `policy_events` (Alembic `0004`): the gateway writes
+one row per policy-check failure on `/invoke` through `POST /policy-events`.
+`request_id` correlates a request's failures; `rule_id` holds the check name
+(prompt_injection, schema_validity, arithmetic_consistency), not a routing-rule
+foreign key, since policy events come from the policy bundle. Notes on the realized
+`eval_*` shapes:
 
 - Primary keys are UUIDs (`gen_random_uuid()` server default), as in the control
   tables. `eval_runs.status` is a Postgres enum (`eval_run_status`) with values

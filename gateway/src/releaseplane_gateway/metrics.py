@@ -21,3 +21,15 @@ INVOKE_LATENCY = Histogram(
     "End-to-end POST /invoke latency in seconds, by provider.",
     ["provider"],
 )
+
+ROUTING_DECISIONS = Counter(
+    "gateway_routing_decisions_total",
+    "Routing decisions on /invoke, by whether a rule matched and the serving provider.",
+    ["decision", "provider"],
+)
+
+POLICY_EVENTS = Counter(
+    "gateway_policy_events_total",
+    "Policy-check failures on /invoke, by check, outcome, and the bundle severity mode.",
+    ["check", "outcome", "severity_mode"],
+)

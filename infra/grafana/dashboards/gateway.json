@@ -45,6 +45,24 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "fieldConfig": { "defaults": { "unit": "reqpm" }, "overrides": [] },
       "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (provider) (rate(gateway_invoke_requests_total{outcome=\"error\"}[5m])) * 60", "legendFormat": "{{provider}}" } ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Routing decisions/min (matched vs fallthrough, by provider)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "reqpm" }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (decision, provider) (rate(gateway_routing_decisions_total[5m])) * 60", "legendFormat": "{{decision}} / {{provider}}" } ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Policy failures/min (by check and severity mode)",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "reqpm" }, "overrides": [] },
+      "targets": [ { "refId": "A", "datasource": { "type": "prometheus", "uid": "prometheus" }, "expr": "sum by (check, severity_mode) (rate(gateway_policy_events_total[5m])) * 60", "legendFormat": "{{check}} ({{severity_mode}})" } ]
     }
   ]
 }
