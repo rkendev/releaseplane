@@ -8,7 +8,11 @@
 SRC := control-plane/src gateway/src evals/src sdk/src shared/src
 TESTS := control-plane/tests gateway/tests evals/tests tests
 
-.PHONY: check lint format typecheck test secrets lattice
+# Host port the dev stack publishes Postgres on. The committed compose uses 5432;
+# a local override may remap it (this is why `make migrate` takes PGPORT=5433).
+PGPORT ?= 5432
+
+.PHONY: check lint format typecheck test secrets lattice migrate
 
 check: lint typecheck test
 
@@ -52,3 +56,15 @@ secrets:
 	           infra/secrets/grafana_admin_password infra/secrets/claude_api_key \
 	           infra/secrets/openai_api_key; \
 	echo "wrote infra/secrets/{postgres_password,minio_root_password,grafana_admin_password,claude_api_key,openai_api_key}"
+
+# Apply Alembic migrations to the running dev stack Postgres. Migrations do not
+# run on container startup, so the persisted volume can lag head after the schema
+# advances (a missing table shows up as a 500 from the matching endpoint). Run
+# this after a bring-up. The container image does not ship the alembic/ tree, so
+# run it from the host: the password comes from the secret file and the host port
+# follows the published mapping (set PGPORT=5433 if a local override remaps it).
+migrate:
+	cd control-plane && \
+	DATABASE_URL='postgresql+asyncpg://releaseplane@localhost:$(PGPORT)/releaseplane' \
+	DATABASE_PASSWORD_FILE='$(CURDIR)/infra/secrets/postgres_password' \
+	uv run alembic upgrade head

@@ -49,6 +49,31 @@ Expected:
 a 200 response means the process is live but could not connect (see below).
 `docker compose -f infra/docker-compose.yml ps` shows each container's health.
 
+## Before a demo: rebuild and migrate
+
+Two states bite a demo bring-up that a plain `up -d` does not fix on its own.
+
+First, `up -d` reuses a cached image even when the source has moved on, so a
+service can run an older build that is missing newly wired routes. Rebuild the
+app services from current source before the demo:
+
+```bash
+docker compose -f infra/docker-compose.yml build control-plane gateway
+docker compose -f infra/docker-compose.yml up -d
+```
+
+On a host that remaps ports through a local override, add
+`-f infra/docker-compose.override.yml` to both commands (see Port already in use
+under Common failure modes).
+
+Second, migrations do not run on container startup, so the persisted Postgres
+volume can lag the latest Alembic revision; a missing table surfaces as a 500
+from the matching endpoint. Apply them once the stack is healthy:
+
+```bash
+make migrate            # add PGPORT=5433 if a local override remaps Postgres
+```
+
 ## Service URLs
 
 | Service | URL | Notes |
