@@ -8,7 +8,7 @@
 SRC := control-plane/src gateway/src evals/src sdk/src shared/src
 TESTS := control-plane/tests gateway/tests evals/tests tests
 
-.PHONY: check lint format typecheck test secrets
+.PHONY: check lint format typecheck test secrets lattice
 
 check: lint typecheck test
 
@@ -29,6 +29,12 @@ test:
 	@uv run pytest -q; ec=$$?; \
 	if [ $$ec -eq 5 ]; then echo "test summary: 0 tests collected"; exit 0; fi; \
 	exit $$ec
+
+# Presence/wiring checks for the Claude Code lattice (ADR 0008). Outside the
+# default pytest collection (root tests/ is not in testpaths), so it has its own
+# target rather than running on every `make check`.
+lattice:
+	uv run pytest tests/test_claude_lattice.py -q
 
 # Write one secret file per value in .env (workspace root) into infra/secrets/.
 # See infra/secrets.md. Never commit .env or the generated files. Files are

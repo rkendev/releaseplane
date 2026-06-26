@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "releaseplane-postgres": {
+      "command": "uvx",
+      "args": ["postgres-mcp", "--access-mode=restricted"],
+      "env": {
+        "DATABASE_URI": "postgresql://releaseplane:${POSTGRES_PASSWORD:-changeme-local-dev}@localhost:5432/releaseplane"
+      }
+    }
+  }
+}

@@ -47,3 +47,19 @@ Phase 0 complete (scope and skeleton). Phase 1 underway (Docker Compose dev kit)
 ## Honesty notes
 
 ReleasePlane is a control-plane reference implementation built around one MVP use case. It is not a multi-tenant SaaS, not a hosted service, and not production-hardened beyond what the eval gates enforce. The hiring narrative is the engineering discipline, not the surface area.
+
+## Claude Code lattice
+
+The repo carries a minimum-viable Claude Code lattice, bootstrapped in one commit (see `docs/ADR/0008-claude-code-lattice-minimum-viable.md`). Each layer is exercised on creation rather than added speculatively:
+
+- `CLAUDE.md`: project paragraph, the authoritative scope pointer (`docs/SCOPE.md`, `docs/ARCHITECTURE.md`), the in-session stack choices, the house style, and the citation rule.
+- `.mcp.json`: one MCP server, `releaseplane-postgres` (crystaldba `postgres-mcp` over `uvx`, restricted access, credentials from the environment), for read-only inspection of the dev-stack database.
+- `.claude/agents/code-reviewer.md`: the review subagent (eval gate, policy bundle, the shared predicate, Alembic no-drift, house style), invoked on this change as its first use.
+- `.claude/hooks/session_start.sh`: a `SessionStart` hook that prints the branch, the uncommitted-changes count, the latest phase brief, and pointers to the scope docs and `CLAUDE.md`.
+
+Rules that govern growth:
+
+- **No ghost subagents**: every agent in `.claude/agents/` must be invoked at least once before the next release tag.
+- **Each layer earns its place by use**: the next additions are deferred until a real recurring need fires their trigger (see ADR 0008): a `PostToolUse` ruff-format hook, a `Stop` hook, a `/close` slash command, and an eval-runner skill.
+
+This bootstrap closes the gap recorded in the cross-project memory `claude_code_lattice_gap.md` (a capable harness with no persistent in-repo wiring).
