@@ -20,7 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .. import models
 from ..db import SessionDep
 from ..models import ReleaseStage
-from ..schemas import ModelConfigRead, ReleaseCreate, ReleaseRead, ResolvedReleaseRead
+from ..schemas import (
+    ModelConfigRead,
+    PolicyBundleRead,
+    ReleaseCreate,
+    ReleaseRead,
+    ResolvedReleaseRead,
+)
 from ..services.eval_gate import eval_gate_ok
 from ..services.state_machine import next_promote_stage
 
@@ -98,17 +104,32 @@ async def list_releases(session: SessionDep) -> Sequence[models.Release]:
 
 
 def _resolve_select() -> (
-    Select[tuple[models.Release, models.PromptVersion, models.PromptDefinition, models.ModelConfig]]
+    Select[
+        tuple[
+            models.Release,
+            models.PromptVersion,
+            models.PromptDefinition,
+            models.ModelConfig,
+            models.PolicyBundle,
+        ]
+    ]
 ):
-    """Join a release to its prompt version, definition, and model config."""
+    """Join a release to its prompt version, definition, model config, and bundle."""
     return (
-        select(models.Release, models.PromptVersion, models.PromptDefinition, models.ModelConfig)
+        select(
+            models.Release,
+            models.PromptVersion,
+            models.PromptDefinition,
+            models.ModelConfig,
+            models.PolicyBundle,
+        )
         .join(models.PromptVersion, models.Release.prompt_version_id == models.PromptVersion.id)
         .join(
             models.PromptDefinition,
             models.PromptVersion.prompt_id == models.PromptDefinition.id,
         )
         .join(models.ModelConfig, models.Release.model_config_id == models.ModelConfig.id)
+        .join(models.PolicyBundle, models.Release.policy_bundle_id == models.PolicyBundle.id)
     )
 
 
@@ -117,6 +138,7 @@ def _compose_resolved(
     version: models.PromptVersion,
     definition: models.PromptDefinition,
     model_config: models.ModelConfig,
+    policy_bundle: models.PolicyBundle,
 ) -> ResolvedReleaseRead:
     return ResolvedReleaseRead(
         release_id=release.id,
@@ -128,6 +150,7 @@ def _compose_resolved(
         variables_schema_json=version.variables_schema_json,
         output_schema_json=version.output_schema_json,
         model=ModelConfigRead.model_validate(model_config),
+        policy_bundle=PolicyBundleRead.model_validate(policy_bundle),
     )
 
 
@@ -147,8 +170,8 @@ async def resolve_active_release(prompt_name: str, session: SessionDep) -> Resol
         raise HTTPException(
             status.HTTP_404_NOT_FOUND, f"no active release for prompt {prompt_name!r}"
         )
-    release, version, definition, model_config = row
-    return _compose_resolved(release, version, definition, model_config)
+    release, version, definition, model_config, policy_bundle = row
+    return _compose_resolved(release, version, definition, model_config, policy_bundle)
 
 
 @router.get("/{release_id}/resolved", response_model=ResolvedReleaseRead)
@@ -162,8 +185,8 @@ async def resolve_release_by_id(release_id: uuid.UUID, session: SessionDep) -> R
     row = (await session.execute(stmt)).first()
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, f"no release with id {release_id}")
-    release, version, definition, model_config = row
-    return _compose_resolved(release, version, definition, model_config)
+    release, version, definition, model_config, policy_bundle = row
+    return _compose_resolved(release, version, definition, model_config, policy_bundle)
 
 
 @router.get("/{release_id}", response_model=ReleaseRead)

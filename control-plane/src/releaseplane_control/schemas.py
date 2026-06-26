@@ -256,6 +256,7 @@ class ResolvedReleaseRead(BaseModel):
     variables_schema_json: dict[str, Any]
     output_schema_json: dict[str, Any]
     model: ModelConfigRead
+    policy_bundle: PolicyBundleRead
 
 
 # --- eval datasets / cases --------------------------------------------------

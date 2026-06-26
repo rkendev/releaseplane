@@ -16,6 +16,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict
 
 from .providers import ModelInvocationConfig
+from .routing import RoutingRule
 
 
 class ResolutionError(RuntimeError):
@@ -48,6 +49,35 @@ class ResolvedModelConfig(BaseModel):
     cost_per_mtok_input_usd: Decimal
     cost_per_mtok_output_usd: Decimal
 
+    def to_invocation_config(self) -> ModelInvocationConfig:
+        """Project this model config onto the provider's value object.
+
+        Used both for the release's own config and for a config a routing rule
+        diverts to, so the registry picks the adapter from `provider` either way.
+        """
+        return ModelInvocationConfig(
+            provider=self.provider,
+            model=self.model_name,
+            temperature=float(self.temperature),
+            max_tokens=self.max_tokens,
+            tool_mode=self.tool_mode,
+            cost_per_mtok_input_usd=self.cost_per_mtok_input_usd,
+            cost_per_mtok_output_usd=self.cost_per_mtok_output_usd,
+        )
+
+
+class ResolvedPolicyBundle(BaseModel):
+    """The policy bundle carried on a resolved release.
+
+    The gateway applies the bundle's checks at runtime; only the rule payload and
+    the severity mode are needed here (the registry id is ignored).
+    """
+
+    name: str
+    version: str
+    rules_json: dict[str, Any]
+    severity_mode: str
+
 
 class ResolvedRelease(BaseModel):
     """The control-plane's composed view of the release the gateway will call."""
@@ -61,18 +91,11 @@ class ResolvedRelease(BaseModel):
     variables_schema_json: dict[str, Any]
     output_schema_json: dict[str, Any]
     model: ResolvedModelConfig
+    policy_bundle: ResolvedPolicyBundle
 
     def invocation_config(self) -> ModelInvocationConfig:
-        """Project the resolved model config onto the provider's value object."""
-        return ModelInvocationConfig(
-            provider=self.model.provider,
-            model=self.model.model_name,
-            temperature=float(self.model.temperature),
-            max_tokens=self.model.max_tokens,
-            tool_mode=self.model.tool_mode,
-            cost_per_mtok_input_usd=self.model.cost_per_mtok_input_usd,
-            cost_per_mtok_output_usd=self.model.cost_per_mtok_output_usd,
-        )
+        """Project the release's own model config onto the provider value object."""
+        return self.model.to_invocation_config()
 
 
 class ReleaseResolver:
@@ -99,3 +122,32 @@ class ReleaseResolver:
                 f"control-plane returned {response.status_code} for {path}"
             )
         return ResolvedRelease.model_validate(response.json())
+
+    async def list_routing_rules(self, use_case: str) -> list[RoutingRule]:
+        """Fetch the routing rules for a use case, ordered by priority ascending.
+
+        Routing applies to /invoke only; an empty list means the request falls
+        through to the release's own model config.
+        """
+        try:
+            response = await self._client.get("/routing-rules", params={"use_case": use_case})
+        except httpx.HTTPError as exc:
+            raise ControlPlaneUnavailableError(f"control-plane unreachable: {exc}") from exc
+        if response.status_code != httpx.codes.OK:
+            raise ControlPlaneUnavailableError(
+                f"control-plane returned {response.status_code} for /routing-rules"
+            )
+        return [RoutingRule.model_validate(row) for row in response.json()]
+
+    async def resolve_model_config(self, model_config_id: uuid.UUID) -> ResolvedModelConfig:
+        """Fetch a model config by id (the target a routing rule diverts to)."""
+        path = f"/model-configs/{model_config_id}"
+        try:
+            response = await self._client.get(path)
+        except httpx.HTTPError as exc:
+            raise ControlPlaneUnavailableError(f"control-plane unreachable: {exc}") from exc
+        if response.status_code != httpx.codes.OK:
+            raise ControlPlaneUnavailableError(
+                f"control-plane returned {response.status_code} for {path}"
+            )
+        return ResolvedModelConfig.model_validate(response.json())

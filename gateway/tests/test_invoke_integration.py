@@ -20,8 +20,8 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from releaseplane_gateway.app import app as gateway_app
-from releaseplane_gateway.invoke import get_provider, get_resolver
-from releaseplane_gateway.providers import DummyProvider
+from releaseplane_gateway.invoke import get_registry, get_resolver
+from releaseplane_gateway.providers import DummyProvider, ProviderRegistry
 from releaseplane_gateway.resolution import ReleaseResolver
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -133,7 +133,9 @@ def _install_gateway(cp_app: Any) -> None:
     transport = httpx.ASGITransport(app=cp_app)
     client = httpx.AsyncClient(transport=transport, base_url="http://control-plane")
     gateway_app.dependency_overrides[get_resolver] = lambda: ReleaseResolver(client)
-    gateway_app.dependency_overrides[get_provider] = lambda: DummyProvider(output=DUMMY_OUTPUT)
+    gateway_app.dependency_overrides[get_registry] = lambda: ProviderRegistry(
+        {"claude": DummyProvider(output=DUMMY_OUTPUT)}
+    )
 
 
 def _exporter() -> InMemorySpanExporter:

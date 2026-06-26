@@ -1,11 +1,16 @@
-"""The /invoke route: resolve a release, render, call the provider, trace it.
+"""The /invoke route: resolve, route, render, call the selected provider, trace it.
 
 This is the execution-plane entry point. It resolves the active release for a
-prompt name (or a pinned release_id), renders the developer prompt from the
-request variables, calls the configured provider for structured output, and
-returns the parsed object with metadata. The provider call is wrapped in a span
-carrying the gen_ai.* semantic-convention attributes plus the release identity,
-so every call is auditable by release in Jaeger.
+prompt name (or a pinned release_id), evaluates the use case's routing rules to
+pick the serving model config (falling through to the release's own config on no
+match), selects the provider adapter for that config from the registry, renders
+the developer prompt, and calls the provider for structured output. The call is
+wrapped in a span carrying the gen_ai.* attributes, the release identity, and the
+routing decision (signal, matched rule, serving provider), so every call is
+auditable by release and by routing outcome.
+
+Routing applies to /invoke only. The eval runner pins the release's own model
+config and never routes.
 """
 
 from __future__ import annotations
@@ -20,8 +25,9 @@ from opentelemetry import trace
 from opentelemetry.trace import Span
 from pydantic import BaseModel, ConfigDict, Field
 
+from .config import provider_override
 from .metrics import INVOKE_LATENCY, INVOKE_REQUESTS
-from .providers import Provider, ProviderError
+from .providers import ModelInvocationConfig, Provider, ProviderError, ProviderRegistry
 from .render import RenderError, render
 from .resolution import (
     ControlPlaneUnavailableError,
@@ -29,15 +35,22 @@ from .resolution import (
     ReleaseResolver,
     ResolvedRelease,
 )
+from .routing import RoutingRule, RoutingSignal, first_match
 
 router = APIRouter(tags=["invoke"])
 tracer = trace.get_tracer("releaseplane.gateway")
+
+# The request variable whose length feeds the routing input-length signal.
+ROUTING_INPUT_VARIABLE = "invoice_pdf_text"
 
 
 class InvokeRequest(BaseModel):
     prompt_name: str = Field(..., min_length=1)
     variables: dict[str, Any] = Field(default_factory=dict)
     release_id: uuid.UUID | None = None
+    # Optional caller routing hint; a rule on the routing_hint field can match it
+    # at a higher priority than the length heuristic to override the routing.
+    routing_hint: str | None = None
 
 
 class InvokeMetadata(BaseModel):
@@ -46,7 +59,9 @@ class InvokeMetadata(BaseModel):
     release_id: uuid.UUID
     prompt_version_id: uuid.UUID
     use_case: str
+    provider: str
     model: str
+    routing_rule_id: str | None
     input_tokens: int
     output_tokens: int
     latency_ms: float
@@ -58,6 +73,18 @@ class InvokeResponse(BaseModel):
     metadata: InvokeMetadata
 
 
+class _Served:
+    """Carries the serving provider name out to the metrics wrapper.
+
+    Provider selection happens after resolution, so the metric labels cannot be
+    set up front; this holder lets the finally block label latency and request
+    counters with the provider that actually served (or 'none' on an early error).
+    """
+
+    def __init__(self) -> None:
+        self.name = "none"
+
+
 def get_resolver(request: Request) -> ReleaseResolver:
     resolver: ReleaseResolver | None = getattr(request.app.state, "resolver", None)
     if resolver is None:
@@ -65,23 +92,24 @@ def get_resolver(request: Request) -> ReleaseResolver:
     return resolver
 
 
-def get_provider(request: Request) -> Provider:
-    provider: Provider | None = getattr(request.app.state, "provider", None)
-    if provider is None:
-        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "provider not configured")
-    return provider
+def get_registry(request: Request) -> ProviderRegistry:
+    registry: ProviderRegistry | None = getattr(request.app.state, "provider_registry", None)
+    if registry is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "provider registry not configured")
+    return registry
 
 
 ResolverDep = Annotated[ReleaseResolver, Depends(get_resolver)]
-ProviderDep = Annotated[Provider, Depends(get_provider)]
+RegistryDep = Annotated[ProviderRegistry, Depends(get_registry)]
 
 
-def _estimate_cost_usd(resolved: ResolvedRelease, input_tokens: int, output_tokens: int) -> float:
-    cfg = resolved.model
+def _estimate_cost_usd(
+    config: ModelInvocationConfig, input_tokens: int, output_tokens: int
+) -> float:
     million = Decimal(1_000_000)
     cost = (
-        Decimal(input_tokens) / million * cfg.cost_per_mtok_input_usd
-        + Decimal(output_tokens) / million * cfg.cost_per_mtok_output_usd
+        Decimal(input_tokens) / million * config.cost_per_mtok_input_usd
+        + Decimal(output_tokens) / million * config.cost_per_mtok_output_usd
     )
     return float(cost)
 
@@ -97,29 +125,96 @@ async def _resolve(resolver: ReleaseResolver, body: InvokeRequest) -> ResolvedRe
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
 
 
+def _routing_signal(body: InvokeRequest, resolved: ResolvedRelease) -> RoutingSignal:
+    raw = body.variables.get(ROUTING_INPUT_VARIABLE, "")
+    text = raw if isinstance(raw, str) else str(raw)
+    return RoutingSignal(
+        input_length=len(text),
+        routing_hint=body.routing_hint,
+        use_case=resolved.use_case,
+    )
+
+
+async def _select_config(
+    resolver: ReleaseResolver,
+    body: InvokeRequest,
+    resolved: ResolvedRelease,
+    signal: RoutingSignal,
+) -> tuple[ModelInvocationConfig, RoutingRule | None]:
+    """Pick the serving config: first matching rule by priority, else the release's own.
+
+    A pinned release_id never routes: pinning selects an exact release (the path
+    the eval runner uses to score a release's own config), so the release's own
+    model config serves unconditionally.
+    """
+    if body.release_id is not None:
+        return resolved.invocation_config(), None
+    try:
+        rules = await resolver.list_routing_rules(resolved.use_case)
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    match = first_match(rules, signal)
+    if match is None:
+        return resolved.invocation_config(), None
+    try:
+        target = await resolver.resolve_model_config(match.target_model_config_id)
+    except ControlPlaneUnavailableError as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
+    return target.to_invocation_config(), match
+
+
+def _select_provider(registry: ProviderRegistry, config: ModelInvocationConfig) -> Provider:
+    # An explicit GATEWAY_PROVIDER override (the dev stack's zero-spend dummy) wins;
+    # otherwise the adapter is the chosen config's provider.
+    name = provider_override() or config.provider
+    try:
+        return registry.select(name)
+    except ProviderError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
+
+
 def _record_release_identity(span: Span, resolved: ResolvedRelease) -> None:
     span.set_attribute("releaseplane.release_id", str(resolved.release_id))
     span.set_attribute("releaseplane.prompt_version_id", str(resolved.prompt_version_id))
     span.set_attribute("releaseplane.use_case", resolved.use_case)
 
 
+def _record_routing(
+    span: Span,
+    signal: RoutingSignal,
+    config: ModelInvocationConfig,
+    matched: RoutingRule | None,
+) -> None:
+    span.set_attribute("releaseplane.routing.signal.input_length", signal.input_length)
+    if signal.routing_hint is not None:
+        span.set_attribute("releaseplane.routing.signal.routing_hint", signal.routing_hint)
+    span.set_attribute("releaseplane.routing.matched", matched is not None)
+    if matched is not None:
+        span.set_attribute("releaseplane.routing.rule_id", str(matched.id))
+    span.set_attribute("releaseplane.model_config.provider", config.provider)
+
+
 @router.post("/invoke", response_model=InvokeResponse)
 async def invoke(
-    body: InvokeRequest, resolver: ResolverDep, provider: ProviderDep
+    body: InvokeRequest, resolver: ResolverDep, registry: RegistryDep
 ) -> InvokeResponse:
     start = time.perf_counter()
     outcome = "error"
+    served = _Served()
     try:
-        response = await _invoke(body, resolver, provider)
+        response = await _invoke(body, resolver, registry, served)
         outcome = "success"
         return response
     finally:
-        INVOKE_LATENCY.labels(provider=provider.name).observe(time.perf_counter() - start)
-        INVOKE_REQUESTS.labels(provider=provider.name, outcome=outcome).inc()
+        INVOKE_LATENCY.labels(provider=served.name).observe(time.perf_counter() - start)
+        INVOKE_REQUESTS.labels(provider=served.name, outcome=outcome).inc()
 
 
 async def _invoke(
-    body: InvokeRequest, resolver: ReleaseResolver, provider: Provider
+    body: InvokeRequest,
+    resolver: ReleaseResolver,
+    registry: ProviderRegistry,
+    served: _Served,
 ) -> InvokeResponse:
     resolved = await _resolve(resolver, body)
 
@@ -128,23 +223,28 @@ async def _invoke(
     except RenderError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
 
-    model_config = resolved.invocation_config()
+    signal = _routing_signal(body, resolved)
+    config, matched = await _select_config(resolver, body, resolved, signal)
+    provider = _select_provider(registry, config)
+    served.name = provider.name
+
     with tracer.start_as_current_span("gateway.invoke") as span:
         _record_release_identity(span, resolved)
+        _record_routing(span, signal, config, matched)
         span.set_attribute("gen_ai.system", provider.name)
-        span.set_attribute("gen_ai.request.model", model_config.model)
+        span.set_attribute("gen_ai.request.model", config.model)
         try:
             result = await provider.generate_structured(
                 system=resolved.system_prompt,
                 prompt=prompt,
-                model_config=model_config,
+                model_config=config,
                 output_schema=resolved.output_schema_json,
             )
         except ProviderError as exc:
             span.record_exception(exc)
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from exc
 
-        cost = _estimate_cost_usd(resolved, result.input_tokens, result.output_tokens)
+        cost = _estimate_cost_usd(config, result.input_tokens, result.output_tokens)
         span.set_attribute("gen_ai.usage.input_tokens", result.input_tokens)
         span.set_attribute("gen_ai.usage.output_tokens", result.output_tokens)
         if result.finish_reason is not None:
@@ -157,7 +257,9 @@ async def _invoke(
             release_id=resolved.release_id,
             prompt_version_id=resolved.prompt_version_id,
             use_case=resolved.use_case,
+            provider=provider.name,
             model=result.model,
+            routing_rule_id=str(matched.id) if matched is not None else None,
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,

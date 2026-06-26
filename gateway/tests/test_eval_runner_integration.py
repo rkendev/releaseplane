@@ -22,8 +22,12 @@ from releaseplane_evals.generator.invoices import build_cases
 from releaseplane_evals.loader import build_dataset_payload
 from releaseplane_evals.runner import run_eval
 from releaseplane_gateway.app import app as gateway_app
-from releaseplane_gateway.invoke import get_provider, get_resolver
-from releaseplane_gateway.providers import ModelInvocationConfig, StructuredResult
+from releaseplane_gateway.invoke import get_registry, get_resolver
+from releaseplane_gateway.providers import (
+    ModelInvocationConfig,
+    ProviderRegistry,
+    StructuredResult,
+)
 from releaseplane_gateway.resolution import ReleaseResolver
 
 from examples.invoice_extraction.models import InvoiceExtraction, InvoiceVariables
@@ -174,8 +178,8 @@ def test_runner_scores_and_persists_a_full_run() -> None:
                 dataset_id = load["dataset"]["id"]
 
                 gateway_app.dependency_overrides[get_resolver] = lambda: ReleaseResolver(cp)
-                gateway_app.dependency_overrides[get_provider] = lambda: _ScriptedProvider(
-                    _scripted_outputs()
+                gateway_app.dependency_overrides[get_registry] = lambda: ProviderRegistry(
+                    {"claude": _ScriptedProvider(_scripted_outputs())}
                 )
                 gw_transport = httpx.ASGITransport(app=gateway_app)
                 async with httpx.AsyncClient(transport=gw_transport, base_url="http://gw") as gw:

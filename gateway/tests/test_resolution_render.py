@@ -48,6 +48,12 @@ RESOLVED_PAYLOAD: dict[str, Any] = {
         "cost_per_mtok_input_usd": "3.0000",
         "cost_per_mtok_output_usd": "15.0000",
     },
+    "policy_bundle": {
+        "name": "invoice_v1",
+        "version": "v1",
+        "rules_json": {},
+        "severity_mode": "monitor",
+    },
 }
 
 

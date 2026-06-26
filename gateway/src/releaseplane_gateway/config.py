@@ -18,9 +18,16 @@ def control_plane_url() -> str:
     return os.environ.get("CONTROL_PLANE_URL", DEFAULT_CONTROL_PLANE_URL)
 
 
-def provider_name() -> str:
-    """Which provider /invoke uses; dummy by default so no call needs a key."""
-    return os.environ.get("GATEWAY_PROVIDER", "dummy").strip().lower()
+def provider_override() -> str | None:
+    """An optional force-override of the serving provider for every request.
+
+    When GATEWAY_PROVIDER names a provider (the dev stack sets it to `dummy` for
+    zero spend), the registry serves that adapter regardless of the resolved or
+    routed model config. Unset or empty means select the provider from the chosen
+    model config's `provider`, which is the real multi-provider path.
+    """
+    value = os.environ.get("GATEWAY_PROVIDER", "").strip().lower()
+    return value or None
 
 
 def anthropic_api_key() -> str:

@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from openai import OpenAI
 from prometheus_client import make_asgi_app
 
-from .config import anthropic_api_key, control_plane_url, openai_api_key, provider_name
+from .config import anthropic_api_key, control_plane_url, openai_api_key
 from .invoke import router as invoke_router
 from .providers import (
     ClaudeProvider,
@@ -32,13 +32,6 @@ from .resolution import ReleaseResolver
 from .telemetry import configure_tracing
 
 SERVICE_NAME = "gateway"
-
-
-def build_provider() -> Provider:
-    """Select the provider from configuration; dummy keeps startup key-free."""
-    if provider_name() == "claude":
-        return ClaudeProvider(Anthropic(api_key=anthropic_api_key()))
-    return DummyProvider()
 
 
 def build_registry() -> ProviderRegistry:
@@ -64,7 +57,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = httpx.AsyncClient(base_url=control_plane_url())
     app.state.http_client = client
     app.state.resolver = ReleaseResolver(client)
-    app.state.provider = build_provider()
     app.state.provider_registry = build_registry()
     try:
         yield
