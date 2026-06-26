@@ -16,11 +16,14 @@ from releaseplane_gateway.providers import (
     ClaudeProvider,
     DummyProvider,
     ModelInvocationConfig,
+    OpenAiProvider,
     ProviderError,
 )
 from releaseplane_gateway.providers.claude import TOOL_NAME
+from releaseplane_gateway.providers.openai import TOOL_NAME as OPENAI_TOOL_NAME
 
 MODEL_CONFIG = ModelInvocationConfig(
+    provider="claude",
     model="claude-sonnet-4-6",
     temperature=0.0,
     max_tokens=4096,
@@ -115,6 +118,135 @@ def test_claude_provider_raises_without_tool_use() -> None:
         stop_reason="end_turn",
     )
     provider = ClaudeProvider(client=_FakeAnthropic(response))
+
+    with pytest.raises(ProviderError):
+        asyncio.run(
+            provider.generate_structured(
+                system="s",
+                prompt="p",
+                model_config=MODEL_CONFIG,
+                output_schema=OUTPUT_SCHEMA,
+            )
+        )
+
+
+# --- OpenAI adapter (stubbed SDK client; no network) ------------------------
+
+
+class _OAFunction:
+    def __init__(self, arguments: str) -> None:
+        self.name = OPENAI_TOOL_NAME
+        self.arguments = arguments
+
+
+class _OAToolCall:
+    def __init__(self, arguments: str, type_: str = "function") -> None:
+        self.type = type_
+        self.function = _OAFunction(arguments)
+
+
+class _OAMessage:
+    def __init__(self, tool_calls: list[_OAToolCall] | None) -> None:
+        self.tool_calls = tool_calls
+
+
+class _OAChoice:
+    def __init__(self, message: _OAMessage, finish_reason: str) -> None:
+        self.message = message
+        self.finish_reason = finish_reason
+
+
+class _OAUsage:
+    def __init__(self, prompt_tokens: int, completion_tokens: int) -> None:
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
+
+
+class _OAResponse:
+    def __init__(self, choices: list[_OAChoice], usage: _OAUsage | None, model: str) -> None:
+        self.choices = choices
+        self.usage = usage
+        self.model = model
+
+
+class _OACompletions:
+    def __init__(self, response: _OAResponse) -> None:
+        self._response = response
+        self.captured: dict[str, Any] | None = None
+
+    def create(self, **kwargs: Any) -> _OAResponse:
+        self.captured = kwargs
+        return self._response
+
+
+class _FakeOpenAI:
+    """Stub standing in for openai.OpenAI; records the request."""
+
+    def __init__(self, response: _OAResponse) -> None:
+        self.chat = type("Chat", (), {"completions": _OACompletions(response)})()
+
+
+def _openai_response(arguments: str, finish_reason: str = "tool_calls") -> _OAResponse:
+    return _OAResponse(
+        choices=[_OAChoice(_OAMessage([_OAToolCall(arguments)]), finish_reason)],
+        usage=_OAUsage(80, 25),
+        model="gpt-4o-mini",
+    )
+
+
+def test_openai_provider_forces_function_call_and_reads_usage() -> None:
+    fake = _FakeOpenAI(_openai_response('{"vendor_name": "Acme"}'))
+    provider = OpenAiProvider(client=fake)
+
+    result = asyncio.run(
+        provider.generate_structured(
+            system="sys",
+            prompt="render me",
+            model_config=MODEL_CONFIG,
+            output_schema=OUTPUT_SCHEMA,
+        )
+    )
+
+    assert result.output == {"vendor_name": "Acme"}
+    assert result.input_tokens == 80
+    assert result.output_tokens == 25
+    assert result.finish_reason == "tool_calls"
+    assert result.model == "gpt-4o-mini"
+
+    req = fake.chat.completions.captured
+    assert req is not None
+    assert req["model"] == "claude-sonnet-4-6"
+    assert req["max_tokens"] == 4096
+    assert req["tool_choice"] == {"type": "function", "function": {"name": OPENAI_TOOL_NAME}}
+    assert req["tools"][0]["function"]["name"] == OPENAI_TOOL_NAME
+    assert req["tools"][0]["function"]["parameters"] == OUTPUT_SCHEMA
+    assert req["messages"] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "render me"},
+    ]
+
+
+def test_openai_provider_raises_without_tool_call() -> None:
+    response = _OAResponse(
+        choices=[_OAChoice(_OAMessage(None), "stop")],
+        usage=_OAUsage(1, 1),
+        model="gpt-4o-mini",
+    )
+    provider = OpenAiProvider(client=_FakeOpenAI(response))
+
+    with pytest.raises(ProviderError):
+        asyncio.run(
+            provider.generate_structured(
+                system="s",
+                prompt="p",
+                model_config=MODEL_CONFIG,
+                output_schema=OUTPUT_SCHEMA,
+            )
+        )
+
+
+def test_openai_provider_raises_on_non_json_arguments() -> None:
+    provider = OpenAiProvider(client=_FakeOpenAI(_openai_response("not json")))
 
     with pytest.raises(ProviderError):
         asyncio.run(

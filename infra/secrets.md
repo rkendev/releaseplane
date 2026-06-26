@@ -12,6 +12,7 @@ infra/
     minio_root_password      # local dev only; not committed
     grafana_admin_password   # local dev only; not committed
     claude_api_key           # local dev only; not committed
+    openai_api_key           # local dev only; not committed (empty = OpenAI adapter skipped)
 ```
 
 The `infra/secrets/` directory is committed empty (just `.gitkeep`). Every file inside it is in `.gitignore`.
@@ -45,4 +46,4 @@ CI runs `detect-private-key` via pre-commit on every PR.
 
 ## Multi-provider readiness
 
-`.env.example` includes `OPENAI_API_KEY` as a placeholder (commented out) so the secret-loading path does not need to be retrofitted in Phase 5 when the second provider lands.
+The second provider (OpenAI) landed in Phase 5. `.env.example` carries `OPENAI_API_KEY` (empty by default); `make secrets` writes `infra/secrets/openai_api_key` from it, and the gateway mounts it at `/run/secrets/openai_api_key` (read via `OPENAI_API_KEY_FILE`). An empty value is the clean skip: the gateway registry omits the OpenAI adapter and the stack runs on Dummy/Claude with zero OpenAI spend.

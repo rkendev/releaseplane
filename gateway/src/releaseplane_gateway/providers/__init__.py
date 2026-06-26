@@ -9,12 +9,16 @@ that keeps CI and the test suite at zero API calls.
 from .base import ModelInvocationConfig, Provider, ProviderError, StructuredResult
 from .claude import ClaudeProvider
 from .dummy import DummyProvider
+from .openai import OpenAiProvider
+from .registry import ProviderRegistry
 
 __all__ = [
     "ClaudeProvider",
     "DummyProvider",
     "ModelInvocationConfig",
+    "OpenAiProvider",
     "Provider",
     "ProviderError",
+    "ProviderRegistry",
     "StructuredResult",
 ]

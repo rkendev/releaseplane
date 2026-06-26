@@ -38,6 +38,7 @@ RESOLVED_PAYLOAD: dict[str, Any] = {
     },
     "output_schema_json": {"type": "object", "properties": {}},
     "model": {
+        "provider": "claude",
         "model_name": "claude-sonnet-4-6",
         "temperature": "0.0",
         "max_tokens": 4096,

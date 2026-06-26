@@ -16,11 +16,18 @@ from contextlib import asynccontextmanager
 import httpx
 from anthropic import Anthropic
 from fastapi import FastAPI
+from openai import OpenAI
 from prometheus_client import make_asgi_app
 
-from .config import anthropic_api_key, control_plane_url, provider_name
+from .config import anthropic_api_key, control_plane_url, openai_api_key, provider_name
 from .invoke import router as invoke_router
-from .providers import ClaudeProvider, DummyProvider, Provider
+from .providers import (
+    ClaudeProvider,
+    DummyProvider,
+    OpenAiProvider,
+    Provider,
+    ProviderRegistry,
+)
 from .resolution import ReleaseResolver
 from .telemetry import configure_tracing
 
@@ -34,12 +41,31 @@ def build_provider() -> Provider:
     return DummyProvider()
 
 
+def build_registry() -> ProviderRegistry:
+    """Build the provider registry from the keys present at startup.
+
+    The dummy adapter is always available; the real adapters are added only when
+    their key is configured, so the stack starts key-free and an unconfigured
+    provider fails at request time with a clear message rather than at boot. The
+    SDK clients are constructed (not called), which makes zero network calls.
+    """
+    providers: dict[str, Provider] = {"dummy": DummyProvider()}
+    anthropic_key = anthropic_api_key()
+    if anthropic_key:
+        providers["claude"] = ClaudeProvider(Anthropic(api_key=anthropic_key))
+    openai_key = openai_api_key()
+    if openai_key:
+        providers["openai"] = OpenAiProvider(OpenAI(api_key=openai_key))
+    return ProviderRegistry(providers)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     client = httpx.AsyncClient(base_url=control_plane_url())
     app.state.http_client = client
     app.state.resolver = ReleaseResolver(client)
     app.state.provider = build_provider()
+    app.state.provider_registry = build_registry()
     try:
         yield
     finally:

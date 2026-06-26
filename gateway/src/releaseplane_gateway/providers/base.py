@@ -24,9 +24,10 @@ class ModelInvocationConfig:
     Sourced from the registry `model_configs` row reached through the active
     release. The adapter passes `model`/`temperature`/`max_tokens` through to the
     API rather than hardcoding them; the cost rates ride along so the caller can
-    estimate spend for the span.
+    estimate spend for the span. `provider` names the adapter the registry picks.
     """
 
+    provider: str
     model: str
     temperature: float
     max_tokens: int

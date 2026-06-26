@@ -33,12 +33,14 @@ class ControlPlaneUnavailableError(ResolutionError):
 class ResolvedModelConfig(BaseModel):
     """The model parameters carried on a resolved release.
 
-    Extra registry fields (id, provider, timeout_ms, ...) are ignored; only what
-    the provider call needs is modelled here.
+    Extra registry fields (id, timeout_ms, ...) are ignored; only what the
+    provider call and the registry selection need is modelled here. `provider`
+    names the adapter the gateway registry resolves the call to.
     """
 
     model_config = ConfigDict(protected_namespaces=())
 
+    provider: str
     model_name: str
     temperature: Decimal
     max_tokens: int
@@ -63,6 +65,7 @@ class ResolvedRelease(BaseModel):
     def invocation_config(self) -> ModelInvocationConfig:
         """Project the resolved model config onto the provider's value object."""
         return ModelInvocationConfig(
+            provider=self.model.provider,
             model=self.model.model_name,
             temperature=float(self.model.temperature),
             max_tokens=self.model.max_tokens,

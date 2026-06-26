@@ -41,6 +41,8 @@ secrets:
 	printf '%s' "$$MINIO_ROOT_PASSWORD"   > infra/secrets/minio_root_password; \
 	printf '%s' "$$GRAFANA_ADMIN_PASSWORD" > infra/secrets/grafana_admin_password; \
 	printf '%s' "$$CLAUDE_API_KEY"        > infra/secrets/claude_api_key; \
+	printf '%s' "$$OPENAI_API_KEY"        > infra/secrets/openai_api_key; \
 	chmod 0644 infra/secrets/postgres_password infra/secrets/minio_root_password \
-	           infra/secrets/grafana_admin_password infra/secrets/claude_api_key; \
-	echo "wrote infra/secrets/{postgres_password,minio_root_password,grafana_admin_password,claude_api_key}"
+	           infra/secrets/grafana_admin_password infra/secrets/claude_api_key \
+	           infra/secrets/openai_api_key; \
+	echo "wrote infra/secrets/{postgres_password,minio_root_password,grafana_admin_password,claude_api_key,openai_api_key}"

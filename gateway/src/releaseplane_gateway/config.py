@@ -30,3 +30,13 @@ def anthropic_api_key() -> str:
     if key_file and Path(key_file).exists():
         return Path(key_file).read_text(encoding="utf-8").strip()
     return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def openai_api_key() -> str:
+    # Same secret-file pattern as the Anthropic key: the dev stack mounts it at
+    # OPENAI_API_KEY_FILE; fall back to the SDK's OPENAI_API_KEY. Absent by
+    # default, so the registry simply omits the OpenAI adapter (clean skip).
+    key_file = os.environ.get("OPENAI_API_KEY_FILE")
+    if key_file and Path(key_file).exists():
+        return Path(key_file).read_text(encoding="utf-8").strip()
+    return os.environ.get("OPENAI_API_KEY", "")
