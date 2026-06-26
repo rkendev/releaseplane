@@ -18,7 +18,15 @@ from fastapi import FastAPI
 from prometheus_client import make_asgi_app
 from sqlalchemy import text
 
-from .api import eval_datasets, eval_runs, model_configs, policy_bundles, prompts, releases
+from .api import (
+    eval_datasets,
+    eval_runs,
+    model_configs,
+    policy_bundles,
+    prompts,
+    releases,
+    routing_rules,
+)
 from .db import make_engine, make_sessionmaker
 from .telemetry import configure_tracing
 
@@ -55,6 +63,7 @@ app.mount("/metrics", make_asgi_app())
 app.include_router(prompts.router)
 app.include_router(model_configs.router)
 app.include_router(policy_bundles.router)
+app.include_router(routing_rules.router)
 app.include_router(releases.router)
 app.include_router(eval_datasets.router)
 app.include_router(eval_runs.router)

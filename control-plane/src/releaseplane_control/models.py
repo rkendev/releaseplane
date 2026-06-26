@@ -126,6 +126,30 @@ class PolicyBundle(Base):
     severity_mode: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class RoutingRule(Base):
+    """A routing rule: a predicate over named request fields mapped to a target.
+
+    The gateway evaluates these on /invoke only (the eval runner pins the
+    release's own model config and never routes). predicate_json holds a single
+    restricted predicate ({field, op, value}); it is validated by the
+    RoutingRulePredicate schema on create, then stored verbatim and re-parsed by
+    the gateway's deterministic matcher. Rules are ordered by priority ascending,
+    first match wins, and an unmatched request falls through to the release's own
+    model config.
+    """
+
+    __tablename__ = "routing_rules"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    use_case: Mapped[str] = mapped_column(String, nullable=False)
+    predicate_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    target_model_config_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("model_configs.id"), nullable=False
+    )
+    priority: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = _created_at()
+
+
 class EvalRunStatus(str, enum.Enum):
     """Lifecycle of an eval run.
 

@@ -12,12 +12,13 @@ namespace because model_name and model_version_pin are legitimate field names.
 
 from __future__ import annotations
 
+import enum
 import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .models import EvalRunStatus, ReleaseStage
 
@@ -125,6 +126,89 @@ class PolicyBundleRead(BaseModel):
     version: str
     rules_json: dict[str, Any]
     severity_mode: str
+
+
+# --- routing_rules ----------------------------------------------------------
+
+
+class RoutingField(str, enum.Enum):
+    """The closed set of named request fields a routing predicate may reference.
+
+    Anything outside this set is rejected on create, so a rule can never name an
+    arbitrary attribute and the gateway matcher only ever reads these keys from a
+    plain dict (no attribute or callable access).
+    """
+
+    input_length = "input_length"
+    routing_hint = "routing_hint"
+    use_case = "use_case"
+
+
+_NUMERIC_FIELDS = frozenset({RoutingField.input_length})
+
+
+class RoutingOp(str, enum.Enum):
+    """The closed operator set for a routing predicate."""
+
+    eq = "eq"
+    ne = "ne"
+    lt = "lt"
+    lte = "lte"
+    gt = "gt"
+    gte = "gte"
+    in_ = "in"
+
+
+_ORDERING_OPS = frozenset({RoutingOp.lt, RoutingOp.lte, RoutingOp.gt, RoutingOp.gte})
+
+
+class RoutingRulePredicate(BaseModel):
+    """A single restricted predicate: field <op> value.
+
+    The closed field and op enums reject unknown names at parse time (a hostile
+    field name is a 422, not an attribute lookup). The model validator rejects
+    malformed pairings: ordering ops need a numeric field and a numeric value,
+    and `in` needs a non-empty list.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    field: RoutingField
+    op: RoutingOp
+    value: int | float | str | list[int | float | str]
+
+    @model_validator(mode="after")
+    def _check_op_value(self) -> RoutingRulePredicate:
+        if self.op is RoutingOp.in_:
+            if not isinstance(self.value, list) or not self.value:
+                raise ValueError("op 'in' requires a non-empty list value")
+            return self
+        if isinstance(self.value, list):
+            raise ValueError(f"op {self.op.value!r} does not take a list value")
+        if self.op in _ORDERING_OPS:
+            if self.field not in _NUMERIC_FIELDS:
+                raise ValueError(f"op {self.op.value!r} requires a numeric field")
+            if isinstance(self.value, str):
+                raise ValueError(f"op {self.op.value!r} requires a numeric value")
+        return self
+
+
+class RoutingRuleCreate(BaseModel):
+    use_case: str = Field(..., min_length=1, max_length=200)
+    predicate: RoutingRulePredicate
+    target_model_config_id: uuid.UUID
+    priority: int = Field(..., ge=0)
+
+
+class RoutingRuleRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    use_case: str
+    predicate: RoutingRulePredicate
+    target_model_config_id: uuid.UUID
+    priority: int
+    created_at: datetime
 
 
 # --- releases ---------------------------------------------------------------
