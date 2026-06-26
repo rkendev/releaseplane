@@ -47,7 +47,7 @@ repos:
           - opentelemetry-instrumentation-fastapi>=0.49b0
         # Source only: tests/ dirs are not packages (importlib mode), and
         # type-checking them as a single "tests" module collides across packages.
-        files: ^(control-plane|gateway|evals|sdk)/src/
+        files: ^(control-plane|gateway|evals|sdk|shared)/src/
 
   - repo: local
     hooks:

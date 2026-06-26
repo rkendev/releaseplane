@@ -150,6 +150,26 @@ class RoutingRule(Base):
     created_at: Mapped[datetime] = _created_at()
 
 
+class PolicyEvent(Base):
+    """One policy-check failure recorded by the gateway on an /invoke request.
+
+    Shapes follow docs/ARCHITECTURE.md > Data model: policy_events. request_id
+    correlates the failures of a single request; rule_id holds the check name
+    (prompt_injection, schema_validity, arithmetic_consistency) rather than a
+    routing-rule foreign key, since policy events come from the policy bundle, not
+    the routing table. detail_json is the check's JSON-serializable evidence.
+    """
+
+    __tablename__ = "policy_events"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    request_id: Mapped[uuid.UUID] = mapped_column(Uuid(), nullable=False)
+    rule_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    outcome: Mapped[str] = mapped_column(String, nullable=False)
+    detail_json: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = _created_at()
+
+
 class EvalRunStatus(str, enum.Enum):
     """Lifecycle of an eval run.
 

@@ -23,6 +23,7 @@ from .api import (
     eval_runs,
     model_configs,
     policy_bundles,
+    policy_events,
     prompts,
     releases,
     routing_rules,
@@ -63,6 +64,7 @@ app.mount("/metrics", make_asgi_app())
 app.include_router(prompts.router)
 app.include_router(model_configs.router)
 app.include_router(policy_bundles.router)
+app.include_router(policy_events.router)
 app.include_router(routing_rules.router)
 app.include_router(releases.router)
 app.include_router(eval_datasets.router)

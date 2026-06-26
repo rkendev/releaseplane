@@ -5,7 +5,7 @@
 # tests trees are still covered by `uv run pre-commit run --all-files`, which is
 # the authoritative gate.
 
-SRC := control-plane/src gateway/src evals/src sdk/src
+SRC := control-plane/src gateway/src evals/src sdk/src shared/src
 TESTS := control-plane/tests gateway/tests evals/tests tests
 
 .PHONY: check lint format typecheck test secrets

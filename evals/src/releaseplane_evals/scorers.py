@@ -22,13 +22,11 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from jsonschema import Draft202012Validator
+from releaseplane_shared.arithmetic import evaluate_arithmetic
 
 SCHEMA_VALIDITY = "schema_validity"
 ARITHMETIC_CONSISTENCY = "arithmetic_consistency"
 CHECKSUM_MATCH = "checksum_match"
-
-# Tolerance for the arithmetic identities, fixed at one currency cent.
-ARITHMETIC_TOLERANCE = Decimal("0.01")
 
 # The four fields whose exact match defines an invoice's identity in the ERP.
 CHECKSUM_FIELDS = ("invoice_number", "invoice_date", "currency", "total")
@@ -81,34 +79,13 @@ def score_schema_validity(output: dict[str, Any], output_schema: dict[str, Any])
 
 
 def score_arithmetic_consistency(output: dict[str, Any]) -> MetricResult:
-    """Pass iff sum(qty*unit_price) == subtotal and subtotal + tax == total (±0.01)."""
-    try:
-        line_items = output["line_items"]
-        line_sum = sum(
-            (_dec(item["qty"]) * _dec(item["unit_price"]) for item in line_items),
-            Decimal(0),
-        )
-        subtotal = _dec(output["subtotal"])
-        tax = _dec(output["tax"])
-        total = _dec(output["total"])
-    except (KeyError, TypeError, InvalidOperation) as exc:
-        return _result(
-            ARITHMETIC_CONSISTENCY,
-            False,
-            {"error": f"missing or non-numeric field: {type(exc).__name__}"},
-        )
+    """Pass iff sum(qty*unit_price) == subtotal and subtotal + tax == total (+/-0.01).
 
-    subtotal_ok = abs(line_sum - subtotal) <= ARITHMETIC_TOLERANCE
-    total_ok = abs((subtotal + tax) - total) <= ARITHMETIC_TOLERANCE
-    detail = {
-        "line_items_sum": str(line_sum),
-        "subtotal": str(subtotal),
-        "tax": str(tax),
-        "total": str(total),
-        "subtotal_matches_line_items": subtotal_ok,
-        "total_matches_subtotal_plus_tax": total_ok,
-    }
-    return _result(ARITHMETIC_CONSISTENCY, subtotal_ok and total_ok, detail)
+    Delegates to the shared predicate so the eval gate and the runtime policy
+    score identical arithmetic; this wraps the result as a MetricResult.
+    """
+    result = evaluate_arithmetic(output)
+    return _result(ARITHMETIC_CONSISTENCY, result.consistent, result.detail)
 
 
 def _normalize_iso_date(value: object) -> str | None:

@@ -14,6 +14,7 @@ dependencies = [
     "releaseplane-gateway",
     "releaseplane-evals",
     "releaseplane",
+    "releaseplane-shared",
 ]
 
 [tool.uv]
@@ -24,9 +25,10 @@ releaseplane-control = { workspace = true }
 releaseplane-gateway = { workspace = true }
 releaseplane-evals = { workspace = true }
 releaseplane = { workspace = true }
+releaseplane-shared = { workspace = true }
 
 [tool.uv.workspace]
-members = ["control-plane", "gateway", "evals", "sdk"]
+members = ["control-plane", "gateway", "evals", "sdk", "shared"]
 
 # Dev toolchain, pinned in uv.lock so `make check` and pre-commit resolve the
 # same versions everywhere. Versions track .pre-commit-config.yaml.
@@ -59,6 +61,11 @@ ignore = ["S101"]  # asserts in tests
 [tool.mypy]
 python_version = "3.12"
 strict = true
+# shared/src is on the mypy path so the gateway and evals resolve the neutral
+# releaseplane_shared package the same way under `make check` and the pre-commit
+# hook (the latter runs mypy in an isolated env that does not install the
+# workspace).
+mypy_path = ["shared/src"]
 # Generated data and the dataset generator are excluded: the generator imports
 # the reference `examples` package, which is not an installed module on mypy's
 # path. It is exercised by the determinism tests instead.

@@ -1,0 +1,10 @@
+[project]
+name = "releaseplane-shared"
+version = "0.0.0"
+description = "Plane-neutral pure predicates shared by the eval harness and the gateway."
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -115,7 +115,10 @@ services:
 
   gateway:
     build:
-      context: ../gateway
+      # Repo root context so the image can install the neutral shared package
+      # next to the gateway (the runtime arithmetic policy imports it).
+      context: ..
+      dockerfile: gateway/Dockerfile
     container_name: releaseplane-gateway
     environment:
       CONTROL_PLANE_URL: http://control-plane:8000

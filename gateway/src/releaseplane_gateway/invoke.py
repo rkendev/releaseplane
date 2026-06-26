@@ -27,6 +27,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .config import provider_override
 from .metrics import INVOKE_LATENCY, INVOKE_REQUESTS
+from .policies import (
+    PolicyOutcome,
+    parse_rules,
+    policy_status,
+    post_call_outcomes,
+    pre_call_outcomes,
+)
 from .providers import ModelInvocationConfig, Provider, ProviderError, ProviderRegistry
 from .render import RenderError, render
 from .resolution import (
@@ -62,6 +69,9 @@ class InvokeMetadata(BaseModel):
     provider: str
     model: str
     routing_rule_id: str | None
+    request_id: uuid.UUID
+    policy_status: str
+    policy_outcomes: list[dict[str, Any]]
     input_tokens: int
     output_tokens: int
     latency_ms: float
@@ -133,6 +143,31 @@ def _routing_signal(body: InvokeRequest, resolved: ResolvedRelease) -> RoutingSi
         routing_hint=body.routing_hint,
         use_case=resolved.use_case,
     )
+
+
+def _injection_input(body: InvokeRequest) -> str:
+    """The untrusted text the injection check scans: the request's string variables."""
+    return "\n".join(str(value) for value in body.variables.values() if isinstance(value, str))
+
+
+async def _emit_failures(
+    resolver: ReleaseResolver, request_id: uuid.UUID, outcomes: list[PolicyOutcome]
+) -> None:
+    """Record a policy_event per failure. Best-effort: the output already succeeded."""
+    for outcome in outcomes:
+        if outcome.passed:
+            continue
+        try:
+            await resolver.emit_policy_event(
+                request_id=request_id,
+                rule_id=outcome.check,
+                outcome="failed",
+                detail=outcome.detail,
+            )
+        except ControlPlaneUnavailableError:
+            # Recording is observability; failing to record must not fail a request
+            # whose output is already produced.
+            continue
 
 
 async def _select_config(
@@ -216,12 +251,16 @@ async def _invoke(
     registry: ProviderRegistry,
     served: _Served,
 ) -> InvokeResponse:
+    request_id = uuid.uuid4()
     resolved = await _resolve(resolver, body)
 
     try:
         prompt = render(resolved.developer_prompt, body.variables, resolved.variables_schema_json)
     except RenderError as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+    rules = parse_rules(resolved.policy_bundle.rules_json)
+    pre_outcomes = pre_call_outcomes(rules, _injection_input(body))
 
     signal = _routing_signal(body, resolved)
     config, matched = await _select_config(resolver, body, resolved, signal)
@@ -231,6 +270,7 @@ async def _invoke(
     with tracer.start_as_current_span("gateway.invoke") as span:
         _record_release_identity(span, resolved)
         _record_routing(span, signal, config, matched)
+        span.set_attribute("releaseplane.request_id", str(request_id))
         span.set_attribute("gen_ai.system", provider.name)
         span.set_attribute("gen_ai.request.model", config.model)
         try:
@@ -251,6 +291,16 @@ async def _invoke(
             span.set_attribute("gen_ai.response.finish_reason", result.finish_reason)
         span.set_attribute("releaseplane.cost_estimate_usd", cost)
 
+        # Apply the bundle's checks; v1 never transforms the output, only records.
+        outcomes = pre_outcomes + post_call_outcomes(
+            rules, result.output, resolved.output_schema_json
+        )
+        status_label = policy_status(outcomes, resolved.policy_bundle.severity_mode)
+        span.set_attribute("releaseplane.policy.status", status_label)
+        span.set_attribute("releaseplane.policy.failures", sum(1 for o in outcomes if not o.passed))
+
+    await _emit_failures(resolver, request_id, outcomes)
+
     return InvokeResponse(
         output=result.output,
         metadata=InvokeMetadata(
@@ -260,6 +310,9 @@ async def _invoke(
             provider=provider.name,
             model=result.model,
             routing_rule_id=str(matched.id) if matched is not None else None,
+            request_id=request_id,
+            policy_status=status_label,
+            policy_outcomes=[outcome.as_dict() for outcome in outcomes],
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             latency_ms=result.latency_ms,

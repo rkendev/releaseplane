@@ -9,6 +9,7 @@ dependencies = [
     "fpdf2>=2.8",
     "boto3>=1.35",      # MinIO S3 client
     "jsonschema>=4.20", # schema-validity metric validates output against the release schema
+    "releaseplane-shared", # shared arithmetic predicate, also used by the gateway policy
 ]
 
 [project.optional-dependencies]

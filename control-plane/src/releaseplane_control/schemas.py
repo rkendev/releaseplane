@@ -211,6 +211,29 @@ class RoutingRuleRead(BaseModel):
     created_at: datetime
 
 
+# --- policy_events ----------------------------------------------------------
+
+
+class PolicyEventCreate(BaseModel):
+    """One policy-check failure the gateway records for an /invoke request."""
+
+    request_id: uuid.UUID
+    rule_id: str | None = Field(None, max_length=64)
+    outcome: str = Field(..., min_length=1, max_length=32)
+    detail_json: dict[str, Any] | None = None
+
+
+class PolicyEventRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    request_id: uuid.UUID
+    rule_id: str | None
+    outcome: str
+    detail_json: dict[str, Any] | None
+    created_at: datetime
+
+
 # --- releases ---------------------------------------------------------------
 
 

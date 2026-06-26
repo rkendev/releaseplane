@@ -151,3 +151,29 @@ class ReleaseResolver:
                 f"control-plane returned {response.status_code} for {path}"
             )
         return ResolvedModelConfig.model_validate(response.json())
+
+    async def emit_policy_event(
+        self,
+        *,
+        request_id: uuid.UUID,
+        rule_id: str | None,
+        outcome: str,
+        detail: dict[str, Any],
+    ) -> None:
+        """Record one policy-check failure on the control plane (append-only)."""
+        try:
+            response = await self._client.post(
+                "/policy-events",
+                json={
+                    "request_id": str(request_id),
+                    "rule_id": rule_id,
+                    "outcome": outcome,
+                    "detail_json": detail,
+                },
+            )
+        except httpx.HTTPError as exc:
+            raise ControlPlaneUnavailableError(f"control-plane unreachable: {exc}") from exc
+        if response.status_code not in (httpx.codes.OK, httpx.codes.CREATED):
+            raise ControlPlaneUnavailableError(
+                f"control-plane returned {response.status_code} for /policy-events"
+            )
