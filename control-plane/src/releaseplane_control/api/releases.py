@@ -14,7 +14,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import ColumnElement, Select, select
+from sqlalchemy import ColumnElement, Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .. import models
@@ -44,6 +44,21 @@ def _active_unarchived() -> list[ColumnElement[bool]]:
         models.Release.stage == ReleaseStage.active,
         models.Release.archived_at.is_(None),
     ]
+
+
+async def _lock_prompt(session: AsyncSession, prompt_id: uuid.UUID) -> None:
+    """Take a transaction-scoped advisory lock keyed on the prompt.
+
+    Serializes the archive-and-activate step for one prompt so two concurrent
+    promotes cannot both reach active and leave two serving releases. A second
+    promoter blocks here until the first commits, then archives that now-active
+    release before activating its own. The lock releases automatically at commit
+    or rollback.
+    """
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:key)::bigint)"),
+        {"key": str(prompt_id)},
+    )
 
 
 async def _archive_prior_active(session: AsyncSession, release: models.Release) -> None:
@@ -229,6 +244,9 @@ async def promote_release(release_id: uuid.UUID, session: SessionDep) -> models.
         raise HTTPException(status.HTTP_409_CONFLICT, f"promotion blocked: {gate.reason}")
 
     if target is ReleaseStage.active:
+        prompt_version = await session.get(models.PromptVersion, release.prompt_version_id)
+        if prompt_version is not None:
+            await _lock_prompt(session, prompt_version.prompt_id)
         await _archive_prior_active(session, release)
         release.activated_at = datetime.now(UTC)
     release.stage = target
