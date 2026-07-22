@@ -48,6 +48,9 @@ evals/_runs/
 # Local-only docker overrides
 docker-compose.override.yml
 
+# Generated knowledge-graph output. Local analysis artifact, not part of the repo.
+graphify-out/
+
 # Build scaffolding / task briefs: kept on disk, not part of the portfolio repo.
 # Anchored to the repo root so it never matches docs/ content.
 /T_*.md

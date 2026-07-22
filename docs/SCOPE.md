@@ -5,22 +5,23 @@ Locked 2026-06-23 by the Phase 0 council. Items here are binding for v1.
 ## In scope
 
 - One MVP use case: Accounts Payable invoice extraction (PDF in, structured JSON out).
-- One primary provider: Claude, via the SDK's structured-output / tool-use path.
-- Adapter Protocol: provider-agnostic `generate_structured(schema)` contract. Second provider is reserved (Phase 5), not implemented.
+- One primary provider for production: Claude, via the SDK's structured-output / tool-use path. Production stays pinned to it; the second provider exists to make the routing and cost story real, not to split production traffic.
+- Adapter Protocol: provider-agnostic `generate_structured(schema)` contract. Built out to two live providers (Claude and an OpenAI-compatible second) plus an offline dummy, selected per request through a provider registry (ADR 0007).
 - Release lifecycle: states `draft`, `candidate`, `active`, `rolled-back`. `canary` is defined in the state diagram but not wired at v1.
 - Eval harness: deterministic checks only. Three metrics: JSON Schema validity, arithmetic consistency (±0.01 currency tolerance), checksum exact-match on `invoice_number`, `invoice_date`, `currency`, `total`.
 - Eval dataset: 30 cases minimum, generator-script-emitted with a fixed seed. Three tiers: 10 clean, 10 moderate, 10 hard.
 - Policies at v1: JSON-schema validation (output), arithmetic-consistency rule (output), prompt-injection regex filter (input).
 - Schema language: Pydantic v2 models as the single source of truth. JSON Schema is auto-generated.
 - Observability: OTel traces with `releaseplane.release_id` on every span; Grafana for request rate, p95 latency, error rate; Jaeger for trace inspection.
-- Deployment: Docker Compose locally; single VPS for the public demo URL.
+- Deployment: Docker Compose locally. The demo ships as a recording against the local stack, not as a hosted URL (see below).
+- Multi-provider routing: a restricted JSON predicate DSL, one rule set per use case, matched deterministically first-by-priority (ADR 0005). Latency- and cost-aware routing stay out.
 
 ## Out of scope (v1)
 
-- Multi-provider routing logic (Phase 5).
+- A hosted public demo URL. The demo is recorded against the local stack; a live endpoint would need a spend cap, a per-IP rate limit, and a kill switch to be safe in public, and none of that carries the narrative.
 - Multi-tenant or per-tenant policy isolation.
 - A web admin UI beyond a single server-rendered list-of-prompts / list-of-releases page with one Promote button.
-- PII redaction policies beyond the prompt-injection regex filter (Phase 4 closes the gap for vendor tax IDs and bank details).
+- PII redaction policies beyond the prompt-injection regex filter. Vendor tax IDs and bank details flow through the gateway unredacted at v1; traces record release identity and counters, not the invoice text. See `docs/SECURITY.md` for the inventory and the trigger to move redaction in.
 - Online evaluation, A/B testing, shadow traffic replay (shadow mode; see below).
 - Cost-aware dynamic routing.
 - LLM-as-judge metrics.
@@ -33,7 +34,7 @@ Locked 2026-06-23 by the Phase 0 council. Items here are binding for v1.
 
 ## Out-of-scope rationale
 
-Every extra dimension at v1 inflates the eval surface before the harness is proven. The KB entry `[system_design] GenAI Evaluation and Monitoring` and the project canon (`RoadMap.txt > Phase 0`) both anchor on "lock the thin vertical slice." Items above with a phase tag are not killed, only deferred.
+Every extra dimension at v1 inflates the eval surface before the harness is proven. The KB entry `[system_design] GenAI Evaluation and Monitoring` and the project canon (`RoadMap.txt > Phase 0`) both anchor on "lock the thin vertical slice." Nothing on the out-of-scope list is killed; each item is deferred and moves in only under a trigger below.
 
 ## Phase-out triggers
 
@@ -45,7 +46,7 @@ An out-of-scope item moves in when one of the following holds:
 
 No item moves in by drift.
 
-## Shadow mode (deferred, Phase 5 D5)
+## Shadow mode (deferred)
 
 Shadow mode would run a candidate release (or a routed alternate provider) against
 live traffic in parallel with the active release, scoring the shadow output without

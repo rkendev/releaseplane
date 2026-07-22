@@ -7,6 +7,7 @@ from a clean clone, plus the failure modes you are most likely to hit.
 
 - Docker Engine and the Docker Compose plugin (`docker compose version`).
 - For running tests and lint locally: `uv` (`uv sync` installs everything).
+- `jq`, for the release walkthrough below.
 
 ## 1. Create local secrets
 
@@ -74,6 +75,67 @@ from the matching endpoint. Apply them once the stack is healthy:
 make migrate            # add PGPORT=5433 if a local override remaps Postgres
 ```
 
+## Walk a release through the gate
+
+Seeding registers prompts, not releases. This is the full path from a seeded stack to an
+active release. It assumes `jq` and the host ports the committed compose publishes.
+
+```bash
+CP=http://localhost:8001
+GW=http://localhost:8002
+
+# 1. Policy bundle invoice_v1 plus prompt versions v1 and v2. Idempotent.
+CONTROL_PLANE_URL=$CP uv run python control-plane/scripts/seed_invoice_v1.py
+
+# 2. Model config, seeded from infra/model_configs/v1_default.yaml. Idempotent.
+curl -s -X POST $CP/model-configs/seed > /dev/null
+
+# 3. Collect the three ids a release binds.
+PROMPT_ID=$(curl -s $CP/prompts | jq -r '.[] | select(.name=="invoice-extraction") | .id')
+VERSION_ID=$(curl -s $CP/prompts/$PROMPT_ID/versions | jq -r '.[] | select(.version=="v2") | .id')
+MODEL_ID=$(curl -s $CP/model-configs | jq -r '.[] | select(.name=="v1_default") | .id')
+BUNDLE_ID=$(curl -s $CP/policy-bundles | jq -r '.[] | select(.name=="invoice_v1") | .id')
+
+# 4. Create the release. It starts in draft.
+RELEASE_ID=$(curl -s -X POST $CP/releases -H 'content-type: application/json' \
+  -d "{\"prompt_version_id\":\"$VERSION_ID\",\"model_config_id\":\"$MODEL_ID\",\"policy_bundle_id\":\"$BUNDLE_ID\"}" \
+  | jq -r .id)
+
+# 5. Load the 30-case golden dataset.
+CONTROL_PLANE_URL=$CP uv run python -m releaseplane_evals.cli load
+DATASET_ID=$(curl -s $CP/eval-datasets | jq -r '.[] | select(.name=="invoice_v1") | .id')
+
+# 6. Score the release. The runner pins the release by id, so it scores this
+#    release's own model config and never routes.
+CONTROL_PLANE_URL=$CP GATEWAY_URL=$GW \
+  uv run python -m releaseplane_evals.cli run --release-id $RELEASE_ID --dataset-id $DATASET_ID
+
+# 7. Promote. Two hops: draft to candidate, candidate to active. The gate runs on both.
+curl -s -X POST $CP/releases/$RELEASE_ID/promote | jq .
+curl -s -X POST $CP/releases/$RELEASE_ID/promote | jq .
+```
+
+Both CLI commands need their URLs passed explicitly: the evals CLI defaults to port 8000,
+which is the in-container port, not the host-published one.
+
+On the default dev stack the gateway is pinned to `DummyProvider`, which returns a canned
+object rather than calling a model. Step 6 therefore scores 0 percent on schema validity
+and step 7 returns:
+
+```
+409  {"detail": "promotion blocked: tier 1 schema_validity 0% < 100%; ..."}
+```
+
+That is the gate working, at zero spend. Reaching an active release needs a real provider,
+which is a deliberate operator step: bring the gateway up with a provider key and
+`GATEWAY_PROVIDER=claude`, re-run step 6, then promote. Once a release is active,
+`POST $GW/invoke` resolves it by prompt name:
+
+```bash
+curl -s $GW/invoke -H 'content-type: application/json' \
+  -d '{"prompt_name": "invoice-extraction", "variables": {"invoice_pdf_text": "..."}}' | jq .
+```
+
 ## Service URLs
 
 | Service | URL | Notes |
@@ -103,6 +165,26 @@ provisioned at boot).
       ports: !override
         - "5433:5432"
   ```
+
+- **`/invoke` returns `"policy_status": "passed"` with an empty `policy_outcomes`, on
+  output that should have failed.** The seeded policy bundle is stale. `seed_policy_bundle`
+  matches on `(name, version)` and skips a bundle that already exists, so a persisted
+  volume holding an `invoice_v1@v1` row from before the policy engine landed keeps its
+  old `rules_json` forever. An empty `rules_json` means no check runs and everything
+  passes. Confirm with:
+
+  ```bash
+  curl -s http://localhost:8001/policy-bundles \
+    | jq '.[] | select(.name=="invoice_v1") | {severity_mode, rules_json}'
+  ```
+
+  A current bundle has `severity_mode: "enforce"` and a `rules_json.checks` list of
+  `prompt_injection`, `schema_validity`, `arithmetic_consistency`. If yours is empty,
+  the row predates the engine. Fix by wiping the volume
+  (`docker compose -f infra/docker-compose.yml down -v`, then bring up, migrate, and
+  re-seed), which is the safe option on a dev stack. Worth checking before a demo: the
+  stack looks healthy either way, and the failure mode is that the policy beat quietly
+  shows nothing.
 
 - **Grafana exits with `permission denied` on a secret.** The secret file is not
   readable by the Grafana user. Fix: re-run `make secrets` (it writes `0644`).

@@ -59,11 +59,11 @@ Tier-3 monitoring is for regression detection over time, not per-release gating.
 - The most recent eval run did not complete (status != `succeeded`).
 - Any Tier-1 or Tier-2 gating threshold above is unmet.
 
-The rejection body returns the failing metrics and case IDs. No promotion can proceed without a passing eval run, no exceptions, no overrides at v1.
+The rejection detail names the reason: the missing or stale run, the non-succeeded status, or every failing tier and metric with its measured rate against the threshold (for example `tier 2 arithmetic_consistency 90% < 100%`). Per-case detail stays on the `eval_results` rows rather than being duplicated into the error body. No promotion can proceed without a passing eval run, no exceptions, no overrides at v1.
 
 ## Dataset
 
-30 cases minimum, generator-script-emitted with a fixed seed (`evals/generator/invoices.py`). 10 Tier-1, 10 Tier-2, 10 Tier-3. PDFs and ground-truth JSON both committed to the repo (`evals/datasets/invoice_v1/`).
+30 cases minimum, generator-script-emitted with a fixed seed (`evals/src/releaseplane_evals/generator/invoices.py`). 10 Tier-1, 10 Tier-2, 10 Tier-3. PDFs and ground-truth JSON both committed to the repo (`evals/datasets/invoice_v1/`).
 
 Rationale for floor of 30 (not 10): a 10-row eval set yields too small a denominator to distinguish a single-field regression from noise. KB anchor: `[production_eval] Minimal RAG Evaluation Pipeline` ("2-row demo dataset: structure is right, scale is not; production-realistic eval sets need thousands of rows").
 
@@ -71,10 +71,10 @@ The generator script itself is a portfolio artifact. Hiring managers see the tes
 
 ## What we are not measuring at v1
 
-- Latency. Tracked in observability (Prometheus / Grafana), not in the eval gate. Phase 5 added routing by an input-length heuristic plus an optional caller hint; latency- and cost-aware routing remain deferred.
+- Latency. Tracked in observability (Prometheus / Grafana), not in the eval gate. Routing selects a model config by an input-length heuristic plus an optional caller hint; latency- and cost-aware routing remain deferred.
 - Token cost. Tracked per request via OTel attributes, surfaced in Grafana; not gated.
 - Politeness or style. Subjective + qualitative; out of scope.
-- Refusal rate. Reserved for Phase 5 policy expansion.
+- Refusal rate. Not measured at v1; deferred with the rest of the policy expansion.
 
 ## Eval lifecycle (as built, Phase 4)
 
@@ -88,14 +88,43 @@ gate on promotion          -> POST /releases/{id}/promote checks the latest run:
 ```
 
 Routing does not apply to eval runs. The runner pins the release by id, and a
-pinned `release_id` never routes (Phase 5), so a release is always scored on its
+pinned `release_id` never routes (ADR 0005), so a release is always scored on its
 own model config, not on whatever a routing rule might divert live traffic to. The
 runtime policy engine likewise applies to `/invoke`; the eval gate uses the same
 arithmetic predicate through the scorer, not the runtime policy path.
 
-The runner is the evals CLI (`python -m releaseplane_evals.cli run --release-id ... --dataset-id ...`), not CI: CI makes zero live API calls, so the suite drives the runner on DummyProvider and proves the gate with an injected bad output (the committed case_14 regression test). Per-case input/output artifacts land as JSONB on `eval_results` (MinIO archival is deferred to Phase 5). The eval gate is enforced by default (`EVAL_GATE_ENFORCED`, on).
+The runner is the evals CLI (`python -m releaseplane_evals.cli run --release-id ... --dataset-id ...`), not CI: CI makes zero live API calls, so the suite drives the runner on DummyProvider and proves the gate with an injected bad output (the committed case_14 regression test). Per-case input/output artifacts land as JSONB on `eval_results` (MinIO archival stays deferred). The eval gate is enforced by default (`EVAL_GATE_ENFORCED`, on).
 
-The real baseline numbers come from one deliberate, gated live run against the pinned Sonnet 4.6 (`evals/scripts/run_eval_live.py`), run by an operator against a stack whose gateway uses the claude provider. It skips cleanly without a key and is never run by CI. Phase 0 locks the metric definitions and thresholds above.
+The real baseline numbers come from deliberate, gated live runs against the pinned Sonnet 4.6 (`evals/scripts/run_eval_live.py`), run by an operator against a stack whose gateway uses the claude provider. The script skips cleanly without a key and is never run by CI. Phase 0 locks the metric definitions and thresholds above.
+
+## Recorded baseline
+
+Two live runs on the 30-case `invoice_v1` set against `claude-sonnet-4-6`:
+
+| Run | Prompt | Tier 1 | Tier 2 | Tier 3 | Gate |
+| --- | --- | --- | --- | --- | --- |
+| `da53ec97` | v1 | 100 / 100 / 100 | 90 / 90 / 100 | 100 / 100 / 100 | Blocked |
+| `ef6a27d8` | v2 | 100 / 100 / 100 | 100 / 100 / 100 | 100 / 100 / 100 | Passed |
+
+Rates are schema validity / arithmetic consistency / checksum exact-match, in percent.
+
+Both Tier-2 failures in the v1 run are the same case, the discount row. The model
+represented a volume discount as a negative line item (`unit_price = -100.00`) rather
+than netting it into the line items. That trips two metrics at once: schema validity,
+because `unit_price` is constrained non-negative, and arithmetic consistency, because
+the extra row makes the line-item sum 1,050.00 against a subtotal of 1,150.00.
+
+The fix was a prompt change, not a threshold change: a discount paragraph added to the
+system prompt (net discounts into positive line items that sum to the subtotal, never a
+negative or zero `unit_price`), persisted as
+`examples/invoice_extraction/prompt_v2.yaml`. The v2 run cleared every metric, with the
+discount case landing at a line-item sum of 1,150.01 against a subtotal of 1,150.00,
+inside the 0.01 tolerance. v1 could not promote; v2 could.
+
+Note that this live failure is a different mode from the committed regression test,
+which injects a hallucinated `total` of 1,257.50 on the same case to prove the gate
+offline. Both are caught, but by different metrics: the injected one by arithmetic
+alone, the live one by schema and arithmetic together.
 
 ## Future eval axes (deferred)
 
@@ -104,4 +133,4 @@ When v1 stabilizes, add:
 - **Subjective + end-to-end + qualitative** axis via LLM-as-judge with a rubric, for free-text payment_terms quality (when the field gains downstream consumers).
 - **Online** axis: user-marked corrections from the AP team, fed back as new eval cases.
 
-Both are Phase 5+.
+Both are deferred beyond v1 and move in only under the phase-out triggers in `docs/SCOPE.md`.

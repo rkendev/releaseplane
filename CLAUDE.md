@@ -34,10 +34,13 @@ in `docs/ADR/` record the decisions behind the current shape.
   (the pre-commit `banned-words` hook, scoped to `README.md` and `docs/*.md`); keep
   code and commits to the same style by hand.
 - No `Co-Authored-By` trailers in any commit message, and no gratuitous AI-tool brand
-  names in tracked files. The Claude Code lattice files (`CLAUDE.md`, `.claude/`, the
-  README "Claude Code lattice" section, and `docs/ADR/0008-...`) are the deliberate,
-  documented exception, since they cannot be written without naming the harness. The
-  repo stays private until product-grade.
+  names in tracked files. The harness config is the deliberate, documented exception,
+  since it cannot be written without naming the harness: `CLAUDE.md`, `.claude/`,
+  `.mcp.json`, `docs/ADR/0008-...`, the `lattice` target in the `Makefile`, and
+  `tests/test_claude_lattice.py`. It is working, verified config rather than an
+  advertised feature, so the recruiter-facing surfaces (`README.md` and `docs/` outside
+  ADR 0008) never point at it. The repo is private until the v1.0.0 public flip; after
+  that every tracked file is recruiter-readable.
 - The whole build and CI make zero live provider API calls; tests run on the dummy
   provider, and a CI grep guard fails the run on `api.anthropic.com` or `api.openai.com`.
 
@@ -50,10 +53,9 @@ facts from memory; if a claim is not backed by the code or a doc, verify it firs
 
 ## Cross-project knowledge
 
-Cross-project patterns and council/KB anchors live on the Windows mirror under
-`<mirror>\Knowledge_Base\`. Reach for it for
-shared design knowledge that is not specific to this repo.
+Cross-project patterns and council/KB anchors live in the Knowledge Base on the Windows
+mirror, outside this repo. Reach for it for shared design knowledge that is not specific
+to this repo. Do not name the mirror's directory layout in any tracked file.
 
-See `README.md` (the "Claude Code lattice" section) and
-`docs/ADR/0008-claude-code-lattice-minimum-viable.md` for the repo's Claude Code
-wiring and the rule that every layer must be used before it grows.
+See `docs/ADR/0008-claude-code-lattice-minimum-viable.md` for the repo's harness wiring
+and the rule that every layer must be used before it grows.

@@ -11,7 +11,7 @@
 name: v1_default
 provider: claude
 model_name: claude-sonnet-4-6
-model_version_pin: "claude-sonnet-4-6"      # exact string; gateway rejects on resolution mismatch
+model_version_pin: "claude-sonnet-4-6"      # exact string, recorded for audit; not enforced at call time
 temperature: 0.0                            # deterministic extraction
 max_tokens: 4096
 timeout_ms: 30000

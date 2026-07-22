@@ -22,6 +22,23 @@ ReleasePlane is the control plane between the AP pipeline and the ERP. It enforc
 
 A schema-valid response with a wrong total fails the arithmetic check and cannot promote. A prompt edit that regresses on the golden set cannot reach production. A pinned model that the provider retires triggers a known failure, not a silent one.
 
+## The cost argument for routing
+
+Serving every invoice on the strongest available model is the default, and it is
+expensive. One measured call on `gpt-4o-mini` cost $0.000178, which blends to roughly
+$0.18 per 1,000 invoices. The same workload on the pinned `claude-sonnet-4-6` blends to
+roughly $8.67 per 1,000. That is a factor of about 48 on the same extraction.
+
+The point is not that the cheap model is good enough. The point is that the question is
+answerable rather than a matter of opinion: point the golden set at a release bound to
+the cheap config, read the per-tier pass rates, and the tradeoff is priced. Without an
+eval harness the cost decision is a guess; with one it is a measurement.
+
+One honest limit at v1: routing selects a model config per live request, but an eval run
+pins the release and therefore never routes, so it scores the release's own config. A
+routed alternate is measured by giving it its own release and its own run, not by
+inferring its quality from the run of the release that routed away from it.
+
 ## Who uses it
 
 - AI platform engineer: defines prompt configs, release workflows, policy gates.

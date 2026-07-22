@@ -19,7 +19,7 @@ sequenceDiagram
     participant GW as Gateway
     participant CP as Control Plane
     participant Pol as Policies
-    participant LLM as Claude
+    participant LLM as Provider
     participant Obs as OTel + MinIO
 
     App->>SDK: invoke(prompt_name, variables)
@@ -98,7 +98,7 @@ Every `/invoke` wraps the provider call in a `gateway.invoke` span carrying the
 GenAI semantic-convention attributes and the release identity:
 
 ```
-gen_ai.system                  provider name (claude | dummy)
+gen_ai.system                  provider name (claude | openai | dummy)
 gen_ai.request.model           resolved model name
 gen_ai.usage.input_tokens      prompt tokens
 gen_ai.usage.output_tokens     completion tokens
@@ -154,16 +154,17 @@ model config, and the reference bundle stays immutable so only the stage moves.
 Entering active stamps `activated_at` and archives the prior active release for
 the same prompt.
 
-The eval gate from `docs/EVALUATION.md` is a single seam, `eval_gate_ok`, that
-the promote endpoint calls. The eval runner is Phase 4, so in Phase 2 the gate is
-off by default (the `EVAL_GATE_ENFORCED` setting) and returns a bypass result;
-when enforced it blocks with a clear reason. Phase 4 fills only that function
-body (look up the most recent eval run, require a passing status within the
-staleness window, and enforce the Tier-1 and Tier-2 thresholds) without changing
-the state machine or the endpoint. The backward transitions in the diagram
-(candidate to draft, active to rolled_back, rolled_back to draft) are modeled in
-the transition table for a future demotion or rollback endpoint; the Phase 2
-promote endpoint walks the forward path only.
+The eval gate from `docs/EVALUATION.md` is a single seam, `eval_gate_ok`, that the
+promote endpoint calls. It looks up the most recent eval run for the release and blocks
+unless that run succeeded, finished within `EVAL_STALENESS_HOURS`, and met the Tier-1
+and Tier-2 thresholds. `EVAL_GATE_ENFORCED` defaults on; turning it off returns a
+bypass result rather than changing any other behavior. Filling the gate touched only
+that function body, not the state machine and not the endpoint, which is what the seam
+was for.
+
+The backward transitions in the diagram (candidate to draft, active to rolled_back,
+rolled_back to draft) are modeled in the transition table for a future demotion or
+rollback endpoint; the promote endpoint walks the forward path only.
 
 ## Data model (control plane)
 
@@ -342,10 +343,18 @@ model, token counts, latency, and finish reason.
 The `ClaudeProvider` uses Claude's tool-use path with a single forced tool call,
 so JSON-schema compliance is guaranteed at the provider level rather than parsed
 post-hoc; it passes `model`, `temperature`, and `max_tokens` through from the
-model config rather than hardcoding them. `DummyProvider` returns a canned
-schema-valid object with no network call and is the default, so CI and the test
-suite make zero API calls. The Anthropic SDK client is synchronous and runs in a
-worker thread to keep the handler async. A second provider is Phase 5.
+model config rather than hardcoding them. `DummyProvider` returns a canned object with no
+network call and is the default, so CI and the test suite make zero API calls. Its
+default payload is `{"ok": true}`, which is deliberately not a valid invoice: a test
+that needs a realistic response injects its own. An eval run against a dummy-backed
+stack therefore scores zero on schema validity and the gate blocks promotion, which is
+the zero-spend way to exercise the gate. The Anthropic SDK client is synchronous and runs in a
+worker thread to keep the handler async.
+
+`OpenAiProvider` is the second live adapter, reaching an OpenAI-compatible endpoint
+through a forced function call, which is the same guarantee by a different mechanism.
+Both sit behind the provider registry, so adding a third provider is a registry entry
+and an adapter, with no change to the gateway handler (ADR 0007).
 
 The original sketch took a `PromptVersion`, raw `variables`, and a Pydantic
 `schema` class. The gateway now does resolution and rendering before the adapter,
@@ -356,7 +365,7 @@ and stays provider-focused.
 
 - Pydantic v2 as single source of truth for variable and output schemas. Auto-generates JSON Schema for both prompt placeholders and structured-output contracts. Trade: binds the SDK to Python at v1; a future TypeScript SDK would need to re-export the JSON Schema or regenerate from a shared spec. Tracked as Unresolved Disagreement U1 in the Phase 0 council transcript.
 - Docker Compose, not Kubernetes, at v1. The user's strongest demonstrated discipline is Compose; Kubernetes would inflate the runbook before any failure mode justifies it.
-- MinIO, not S3, for raw artifacts at v1. API-compatible, cheaper to demo, no cloud credentials in the demo URL.
+- MinIO, not S3, for raw artifacts at v1. API-compatible, cheaper to demo, and it keeps cloud credentials out of a stack that anyone can bring up from a clone.
 - No LLM-as-judge at v1. All three eval metrics are deterministic. The KB entry `[system_design] Beyond-LLM Optimization Stack ... Evaluation Axes (Stanford CS230)` names this as the cheapest viable axis: objective + component + quantitative.
 - Single active release per (prompt_name, environment). Concurrent A/B traffic-splitting is deferred; it requires the `canary` state to be wired and a rollout-percent enforcement step in the gateway.
 

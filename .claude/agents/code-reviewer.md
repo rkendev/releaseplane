@@ -31,8 +31,10 @@ Review the changed code against these, in this order:
 5. **House style**: no em-dashes anywhere in the diff; banned words clean in docs
    (robust, leverage, seamless, holistic, delve, foster, "in order to",
    "it's worth noting"); no `Co-Authored-By` trailers and no gratuitous AI-tool brand
-   names in tracked files or commit messages (the Claude Code lattice files in
-   `.claude/`, `CLAUDE.md`, and the README lattice section are the documented exception).
+   names in tracked files or commit messages. The documented exception is the harness
+   config: `.claude/`, `CLAUDE.md`, `.mcp.json`, `docs/ADR/0008-...`, the `lattice`
+   target in the `Makefile`, and `tests/test_claude_lattice.py`. `README.md` and the
+   rest of `docs/` must stay clean.
 6. **Zero-spend posture**: no test or build path can reach `api.anthropic.com` or
    `api.openai.com`; real provider clients are constructed only behind a key check.
 
