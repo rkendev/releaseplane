@@ -17,9 +17,13 @@
 # docs/SECURITY.md already requires for the brand tokens removes it for good, and
 # this line goes with it.
 #
-# This comment describes the pattern rather than quoting it, deliberately. Writing
-# the literal here would be a fresh occurrence in a new commit, which the scan
-# flags in turn, and answering that with a second fingerprint is a loop that ends
-# with an ignore file longer than the finding. tests/test_public_readiness.py
-# builds the brand token at runtime for the same reason.
+# This comment describes the pattern rather than quoting it, deliberately. The
+# first version of this file quoted it, which made the ignore file a fresh
+# occurrence in a new commit and failed the scan in turn. That commit is already in
+# history, so the second entry below covers it: the same non-secret, quoted inside
+# an explanation of itself. Describing rather than quoting is what stops that from
+# recurring, since a scan over full history cannot be fixed by editing the tip.
+# tests/test_public_readiness.py builds the brand token at runtime for the same
+# reason.
 b03578dd04d5e98e90052e5337dccdb14f403993:docs/RUNBOOK.md:curl-auth-user:422
+e7af66b89a523e1300b25494e7dc89f71292cf55:.gitleaksignore:curl-auth-user:7
