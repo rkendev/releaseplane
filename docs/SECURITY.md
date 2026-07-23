@@ -97,10 +97,43 @@ in any commit. Until that scrub, `--history` reports the exact commits and paths
 
 ## Public demo surface
 
-There is none. The demo ships as a recording against the local stack, not as a hosted
-endpoint, so there is no public request path, no public spend surface, and nothing to
-rate-limit or kill-switch. The stack on camera is pinned to the offline `DummyProvider`,
-which makes no provider call. A live public endpoint would need a per-request rate limit,
-a daily spend cap with a counter, and an environment kill switch before it could be
-exposed; none of that is built, because none of it carries the demo narrative
-(`docs/SCOPE.md`).
+Two things are publicly reachable, both read-only: Grafana with anonymous Viewer, and
+the Jaeger trace-search UI. Both are served through the host's reverse proxy. That
+reverses the earlier recorded-only decision; ADR 0009 records why.
+
+Everything else is unreachable from outside the host. The control-plane API, the gateway
+`/invoke`, Postgres, MinIO, Prometheus, and the OTel collector are published on
+`127.0.0.1` by `infra/docker-compose.demo.yml`, so there is no public request path to a
+write and no public spend surface. The dashboards read data from one prior owner-run
+population pass; no visitor action causes a provider call, so there is still nothing to
+rate-limit or kill-switch. A public **write** endpoint stays out of scope for the
+original reasons (`docs/SCOPE.md`): it would need a per-request rate limit, a daily spend
+cap with a counter, and an environment kill switch first.
+
+What anonymous Viewer can do is read every provisioned dashboard and issue read-only
+PromQL through Grafana's datasource proxy. That is accepted: the datasource is Prometheus
+only, Postgres is not a Grafana datasource, and Prometheus runs without
+`--web.enable-admin-api` and without `--web.enable-lifecycle`, so the proxy cannot reach
+a mutating endpoint. Query cost is bounded by `--query.timeout` and
+`--query.max-samples`. Spans carry ids, model, tokens, cost, and policy counters, not
+invoice text, so the Jaeger UI exposes release identity rather than customer data. Write
+paths were probed rather than assumed: anonymous `POST /api/dashboards/db`,
+`/api/annotations`, `/api/datasources`, and `/api/admin/settings` return 403, and
+`/api/snapshots` returns 401. External snapshot sharing is switched off, so no session
+can post dashboard data to a third-party host.
+
+Two operational notes carry real weight here.
+
+**The loopback bind is the control that holds, not the firewall.** Docker's DNAT rules
+sit in the nat table ahead of the filter rules ufw manages, so unless a host wires an
+explicit `DOCKER-USER` rule, ufw does not gate a published container port at all. On the
+demo host it does not, and before the loopback rebind the control plane answered on the
+public IP directly. Treating the firewall as a second layer behind the bind would be
+wrong; there is one layer, and the check that it holds is run from a client outside the
+host, never from localhost. Any host running this stack on a public address should
+assume the same and verify the same way.
+
+**Grafana is kept current, not merely pinned.** Serving it anonymously on the public
+internet changes its patch posture. CVE-2025-3260 was an authorization bypass in the
+dashboard API that named anonymous-auth instances specifically, so the pinned digest
+moves forward with upstream releases rather than staying where it was first set.

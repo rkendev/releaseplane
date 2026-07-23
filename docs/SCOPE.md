@@ -13,12 +13,12 @@ Locked 2026-06-23 by the Phase 0 council. Items here are binding for v1.
 - Policies at v1: JSON-schema validation (output), arithmetic-consistency rule (output), prompt-injection regex filter (input).
 - Schema language: Pydantic v2 models as the single source of truth. JSON Schema is auto-generated.
 - Observability: OTel traces with `releaseplane.release_id` on every span; Grafana for request rate, p95 latency, error rate; Jaeger for trace inspection.
-- Deployment: Docker Compose locally. The demo ships as a recording against the local stack, not as a hosted URL (see below).
+- Deployment: Docker Compose locally. The demo ships as a recording against the local stack, plus a live read-only observability surface: Grafana and Jaeger behind a reverse proxy, showing real data from one prior population run (ADR 0009). Nothing publicly reachable can write state or call a provider.
 - Multi-provider routing: a restricted JSON predicate DSL, one rule set per use case, matched deterministically first-by-priority (ADR 0005). Latency- and cost-aware routing stay out.
 
 ## Out of scope (v1)
 
-- A hosted public demo URL. The demo is recorded against the local stack; a live endpoint would need a spend cap, a per-IP rate limit, and a kill switch to be safe in public, and none of that carries the narrative.
+- A publicly reachable write path: the control-plane API, the gateway `/invoke`, or anything else a visitor could use to create a release, promote one, or cause a provider call. That endpoint would need a spend cap, a per-IP rate limit, and a kill switch to be safe in public, and none of that carries the narrative. The live surface added in ADR 0009 is read-only observability and creates none of those risks; the write path stays out.
 - Multi-tenant or per-tenant policy isolation.
 - A web admin UI beyond a single server-rendered list-of-prompts / list-of-releases page with one Promote button.
 - PII redaction policies beyond the prompt-injection regex filter. Vendor tax IDs and bank details flow through the gateway unredacted at v1; traces record release identity and counters, not the invoice text. See `docs/SECURITY.md` for the inventory and the trigger to move redaction in.

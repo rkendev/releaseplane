@@ -1,12 +1,10 @@
-# Opt-in overlay for the public read-only demo (ADR 0009).
+# Opt-in overlay for the public read-only demo.
 #
-# Active only when explicitly composed in. The committed base stays
-# secure-by-default: it never enables anonymous Grafana and never binds to
-# loopback, so a plain bring-up is unchanged by this file.
+# Inert unless explicitly composed in, so a plain bring-up is unchanged by this
+# file and the committed base never enables anonymous Grafana.
 #
 #   docker compose -p releaseplane \
 #     -f infra/docker-compose.yml \
-#     -f infra/docker-compose.override.yml \
 #     -f infra/docker-compose.demo.yml up -d
 #
 # Two things happen here.
@@ -26,17 +24,24 @@
 # proxy vhosts (see the "Read-only demo" section of docs/RUNBOOK.md).
 #
 # `!override` replaces the port list rather than appending to it. Without it,
-# compose merges the lists and the original 0.0.0.0 binding survives.
+# compose merges the lists and the original 0.0.0.0 binding survives. It needs
+# Compose v2.24 or newer; an older client fails to parse the merged config, which
+# is the right way to fail.
+#
+# Host ports are variables so this tracked file carries no one host's layout. The
+# defaults match the base compose; a host that remaps ports sets them in
+# `infra/.env` (gitignored), which compose reads from the project directory. Same
+# for the public origin: DEMO_ROOT_URL is whatever hostname the proxy serves.
 
 services:
   postgres:
     ports: !override
-      - "127.0.0.1:15432:5432"
+      - "127.0.0.1:${PG_HOST_PORT:-5432}:5432"
 
   minio:
     ports: !override
-      - "127.0.0.1:9100:9000"
-      - "127.0.0.1:9101:9001"
+      - "127.0.0.1:${MINIO_HOST_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_HOST_PORT:-9001}:9001"
 
   otel-collector:
     ports: !override
@@ -64,16 +69,20 @@ services:
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
+      # Snapshot sharing defaults to on and posts dashboard data to a third-party
+      # host. An anonymous Viewer cannot reach it, but an owner session can, and
+      # nothing here needs outbound sharing, so close the egress path outright.
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       # The proxy terminates TLS and forwards to loopback, so Grafana needs the
       # public origin to build correct redirects and share links.
-      GF_SERVER_ROOT_URL: https://releaseplane.85-215-55-99.sslip.io/
+      GF_SERVER_ROOT_URL: ${DEMO_ROOT_URL:-http://localhost:3000/}
       # Land a visitor on the eval story rather than an empty home page.
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/eval.json
 
   control-plane:
     ports: !override
-      - "127.0.0.1:18001:8000"
+      - "127.0.0.1:${CONTROL_PLANE_HOST_PORT:-8001}:8000"
 
   gateway:
     ports: !override
-      - "127.0.0.1:8002:8000"
+      - "127.0.0.1:${GATEWAY_HOST_PORT:-8002}:8000"

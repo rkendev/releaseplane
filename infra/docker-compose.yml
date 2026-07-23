@@ -3,6 +3,16 @@
 #
 # Image digests stay pinned (not just tags) per ADR lesson from prior infra work.
 # Healthchecks live with each service.
+#
+# This file is a local dev stack and publishes on 0.0.0.0, which is what Docker
+# does by default. On a machine with a public address that means Postgres, MinIO,
+# the control plane, and the gateway answer from the internet, and the control
+# plane has no authentication in front of it. A host firewall does not fix that on
+# its own: Docker's DNAT rules run ahead of the filter rules ufw manages, so a
+# published port stays reachable unless the host wires a DOCKER-USER rule. Run
+# this on a laptop or a private network. On anything internet-facing, add
+# `-f infra/docker-compose.demo.yml`, which rebinds every service to 127.0.0.1
+# (see the "Read-only demo" section of docs/RUNBOOK.md).
 
 services:
   postgres:
@@ -72,6 +82,15 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=2y
+      # Time alone would let disk be the only real bound, so cap size too;
+      # whichever limit hits first wins.
+      - --storage.tsdb.retention.size=2GB
+      # A read-only visitor can issue PromQL through Grafana's datasource proxy
+      # once the demo overlay is on, so bound what one query may cost. Neither
+      # --web.enable-admin-api nor --web.enable-lifecycle is set, so the proxy
+      # cannot reach a mutating endpoint.
+      - --query.timeout=30s
+      - --query.max-samples=5000000
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
@@ -79,7 +98,11 @@ services:
       - "9090:9090"
 
   grafana:
-    image: grafana/grafana:11.4.0@sha256:d8ea37798ccc41061a62ab080f2676dda6bf7815558499f901bdb0f533a456fb
+    # Kept current rather than merely pinned. The demo overlay serves this
+    # instance anonymously on the public internet, and CVE-2025-3260 was an
+    # authorization bypass in the dashboard API that named anonymous-auth
+    # instances specifically, so an old pin is not a safe pin here.
+    image: grafana/grafana:13.1.1@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b
     container_name: releaseplane-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password

@@ -15,6 +15,12 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # docker-compose.demo.yml carries compose's `!override` merge tag, which
+        # is valid compose and not valid plain YAML, so the constructor lookup
+        # fails on it. The file is still covered: `docker compose config`
+        # parses it in the runbook check, and tests/test_public_readiness.py
+        # loads and asserts on it.
+        exclude: ^infra/docker-compose\.demo\.yml$
       - id: check-toml
       - id: check-merge-conflict
       - id: detect-private-key

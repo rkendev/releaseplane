@@ -195,22 +195,31 @@ a provider. The decision and its boundary are recorded in ADR 0009.
 ### Bring up with the demo overlay
 
 `infra/docker-compose.demo.yml` is opt-in. It is inert unless named on the command
-line, so a normal bring-up is unaffected by it.
+line, so a normal bring-up is unaffected by it. It needs Compose v2.24 or newer for
+the `!override` tag; an older client fails to parse the merged config rather than
+quietly keeping the wide binding.
 
 ```bash
 docker compose -p releaseplane \
   -f infra/docker-compose.yml \
-  -f infra/docker-compose.override.yml \
   -f infra/docker-compose.demo.yml up -d
-make migrate PGPORT=15432
+make migrate
 ```
 
-Drop the `override` file on a host that does not remap ports. Check what the merged
-files actually render before starting anything:
+The overlay is last in the `-f` order, so it decides the published ports. It carries
+no host's port layout of its own: the numbers come from `PG_HOST_PORT`,
+`CONTROL_PLANE_HOST_PORT`, `GATEWAY_HOST_PORT`, `MINIO_HOST_PORT`, and
+`MINIO_CONSOLE_HOST_PORT`, defaulting to the base compose ports. A host that remaps
+sets them in `infra/.env` (gitignored), which compose reads from the project
+directory, and passes the matching `PGPORT=` to `make migrate`. `DEMO_ROOT_URL` sets
+the public origin Grafana builds its redirect and share links from. See
+`infra/.env.example`.
+
+Check what the merged files actually render before starting anything:
 
 ```bash
 docker compose -p releaseplane -f infra/docker-compose.yml \
-  -f infra/docker-compose.override.yml -f infra/docker-compose.demo.yml config
+  -f infra/docker-compose.demo.yml config
 ```
 
 ### What is exposed
@@ -225,14 +234,20 @@ docker compose -p releaseplane -f infra/docker-compose.yml \
 
 Anonymous Viewer can read every provisioned dashboard and can issue read-only PromQL
 through Grafana's datasource proxy. It cannot edit, create, delete, or sign up, and
-Postgres is not a Grafana datasource, so no invoice data is reachable that way. The
-admin login keeps working for the owner: the demo overlay does not touch the base's
-secret-file password mount.
+Postgres is not a Grafana datasource, so no invoice data is reachable that way.
+External snapshot sharing is off, so nothing posts dashboard data outbound. The admin
+login keeps working for the owner: the demo overlay does not touch the base's
+secret-file password mount. `docs/SECURITY.md` has the full boundary and the probes
+that confirmed it.
+
+Serving Grafana anonymously on the public internet means keeping it patched rather
+than leaving the pin where it was set. Check the vendor advisories before a flip and
+move the digest forward.
 
 ### Reverse proxy
 
-This host fronts with Caddy, which issues and renews the certificates on its own.
-Append to `/etc/caddy/Caddyfile`, matching the other demos on the box:
+The demo host fronts with Caddy, which issues and renews the certificates on its own.
+Append to `/etc/caddy/Caddyfile`:
 
 ```
 # >>> releaseplane demo (managed) >>>
@@ -266,33 +281,39 @@ whatever ufw says about it. Confirm which way it renders:
 
 ```bash
 docker compose -p releaseplane -f infra/docker-compose.yml \
-  -f infra/docker-compose.override.yml -f infra/docker-compose.demo.yml ps
+  -f infra/docker-compose.demo.yml ps
 ```
 
 Every port must read `127.0.0.1:`; none may read `0.0.0.0:`. Then check from a client
 that is not this host (a laptop, not an SSH session into the box), because a
-`localhost` probe passes either way:
+`localhost` probe passes either way. Every published port goes in the list:
 
 ```
-Test-NetConnection <public-ip> -Port 18001    # and 8002, 15432, 9090, 3000, 16686, 4317, 9100
+# control-plane, gateway, Postgres, Prometheus, Grafana, Jaeger,
+# OTLP gRPC and HTTP, MinIO API and console
+Test-NetConnection <public-ip> -Port 8001    # and 8002, 5432, 9090, 3000,
+                                             # 16686, 4317, 4318, 9000, 9001
 ```
 
-Every one must fail. If any raw port answers, the demo does not go live until it is
-closed. The two demo URLs are the only things that may answer.
+Substitute the remapped numbers on a host that sets them. Every one must fail. If any
+raw port answers, the demo does not go live until it is closed. The two demo URLs are
+the only things that may answer.
 
 ### Why the dashboards default to a wide time range
 
 The eval and gateway dashboards open on `now-1y`. The eval metrics are emitted once
 per run, so a narrow window shows an empty panel the day after a population run.
-Prometheus keeps a `prometheus_data` volume with two-year retention to match, so the
-samples survive a Prometheus or host restart.
+Prometheus keeps a `prometheus_data` volume with matching retention, capped by size
+as well as time, so the samples survive a Prometheus or host restart. The tradeoff is
+that the gateway's rate and latency panels are coarse at that range; zoom in for live
+use, and leave it wide for the demo.
 
-One limit, worth knowing before restarting anything: the control-plane counters and
-gauges live in that process, not in the database. After a control-plane restart the
-samples already in the TSDB still render, so the timeseries panels keep the story,
-but the run counters restart at zero. Jaeger all-in-one holds traces in memory, so
-its container has to stay up for the trace links to resolve. Keep the stack running
-between demos rather than cycling it.
+One limit before restarting anything: the control-plane counters and gauges live in
+that process, not in the database. After a control-plane restart the samples already
+in the TSDB still render, so the timeseries panels keep the story, but the run
+counters restart at zero. Jaeger all-in-one holds traces in memory, so its container
+has to stay up for the trace links to resolve. Keep the stack running between demos
+rather than cycling it.
 
 ## Common failure modes
 
