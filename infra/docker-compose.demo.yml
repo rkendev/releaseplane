@@ -119,3 +119,14 @@ services:
   gateway:
     ports: !override
       - "127.0.0.1:${GATEWAY_HOST_PORT:-8002}:8000"
+    environment:
+      # Zero spend unless deliberately unpinned. `make demo-up` names its compose
+      # files explicitly, so a local docker-compose.override.yml is not read and
+      # cannot be the place this is set; without this line the demo host has no way
+      # to unpin at all, which is what the population run needs.
+      #
+      # Note the single dash. `${VAR-default}` keeps an empty value, so setting
+      # GATEWAY_PROVIDER= in infra/.env means "follow the model config", which is
+      # exactly what selecting a provider per request requires. `:-` would fall
+      # back to dummy and quietly make the population run spend nothing.
+      GATEWAY_PROVIDER: ${GATEWAY_PROVIDER-dummy}

@@ -520,28 +520,31 @@ def test_population_script_cannot_spend_without_an_acknowledgement() -> None:
     """
     assert POPULATE_SCRIPT.exists()
 
-    result = subprocess.run(
-        ["bash", str(POPULATE_SCRIPT)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin"},
-    )
-    assert result.returncode != 0, "the script ran without an acknowledgement"
-    assert "RELEASEPLANE_DEMO_SPEND=i-accept" in result.stderr
-    assert "Estimated spend" in result.stderr
+    def run_with(ack: str | None) -> subprocess.CompletedProcess[str]:
+        env = {"PATH": "/usr/bin:/bin"}
+        if ack is not None:
+            env["RELEASEPLANE_DEMO_SPEND"] = ack
+        return subprocess.run(
+            ["bash", str(POPULATE_SCRIPT)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
 
-    # A near-miss value must not satisfy it either.
-    almost = subprocess.run(
-        ["bash", str(POPULATE_SCRIPT)],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-        check=False,
-        env={"PATH": "/usr/bin:/bin", "RELEASEPLANE_DEMO_SPEND": "yes"},
-    )
-    assert almost.returncode != 0
+    # Both cases assert the refusal text, not just a non-zero exit. Exit status
+    # alone proves nothing here: the script has later preconditions (secret files,
+    # a reachable stack) that fail on a machine without them, so a broken gate
+    # would still exit non-zero in CI while spending freely on the owner's host.
+    for ack in (None, "yes", "i-accept-", "I-ACCEPT"):
+        result = run_with(ack)
+        assert result.returncode != 0, f"the script ran with acknowledgement {ack!r}"
+        assert "RELEASEPLANE_DEMO_SPEND=i-accept" in result.stderr, (
+            f"acknowledgement {ack!r} got past the spend gate; the refusal notice "
+            f"is missing, so the run stopped somewhere later"
+        )
+        assert "Estimated spend" in result.stderr
 
 
 def test_population_script_is_syntactically_valid() -> None:
@@ -556,8 +559,10 @@ def test_population_script_is_syntactically_valid() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_population_script_is_not_reachable_from_ci() -> None:
-    # Nothing in the workflow may invoke it, directly or through a make target.
+def test_population_script_is_not_driven_as_a_spend_path_by_ci() -> None:
+    # CI does reach the script: the test above runs it, on purpose, to prove the
+    # gate refuses. What must not exist is a step that drives it as a spend path,
+    # so no workflow step and no make target may name it.
     assert "populate_demo" not in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "populate_demo" not in (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 

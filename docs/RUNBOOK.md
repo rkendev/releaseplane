@@ -524,7 +524,14 @@ credit, printed before anything runs, and the same again on a re-run.
 It produces exactly what the dashboards need: a v1 release the gate blocks (the
 discount-as-negative-line failure), a v2 release that passes and is promoted to
 active, and three `/invoke` calls, one on the Sonnet default, one routed to
-gpt-4o-mini, and one carrying a bad total so a policy event renders.
+gpt-4o-mini, and one carrying a prompt injection so a policy event renders.
+
+The injection is the fixture for that last one rather than a planted bad total,
+deliberately. The v2 prompt instructs the model to make subtotal plus tax equal
+total, so a bad total is most likely corrected rather than passed through, and the
+panel would stay empty with the money spent either way. The injection check runs on
+the request text before the model is called, so it fires on the pattern alone
+whatever the model would have done.
 
 **Rehearse it first. The dry run is free and it has already caught a real bug:**
 
@@ -537,30 +544,43 @@ config and its routing rule, the dataset load, and creating the v1 release) and
 stops before the first eval. It runs against the dummy-pinned stack, which is the
 normal state, so there is no reason not to run it.
 
-Then the real one:
+Then the real one. The order matters, and step 1 is the one that is easy to get
+backwards:
 
 ```bash
-# 1. Unpin the gateway so selection follows the model config.
-#    Set GATEWAY_PROVIDER: "" in infra/docker-compose.override.yml, then:
-make demo-up
-
-# 2. Both provider keys must be present, or the run half-works.
+# 1. Write the keys FIRST. The provider registry is built once at gateway startup,
+#    so a key written after the bring-up is not in it and the cost-tier invoke
+#    fails with no adapter for openai.
 make secrets     # from a .env carrying CLAUDE_API_KEY and OPENAI_API_KEY
+
+# 2. Unpin the gateway so selection follows the model config.
+echo 'GATEWAY_PROVIDER=' >> infra/.env
+make demo-up
+make demo-config | grep GATEWAY_PROVIDER      # must show ""
 
 # 3. Spend.
 RELEASEPLANE_DEMO_SPEND=i-accept infra/scripts/populate_demo.sh
 
-# 4. Re-pin to dummy and bring the stack back, before walking away from a stack
-#    that can spend. Set GATEWAY_PROVIDER: "dummy" again, then:
+# 4. Re-pin, before walking away from a stack that can spend.
+sed -i '/^GATEWAY_PROVIDER=$/d' infra/.env
 make demo-up
 docker inspect releaseplane-gateway \
   --format '{{range .Config.Env}}{{println .}}{{end}}' | grep GATEWAY_PROVIDER
 ```
 
+The unpin goes in `infra/.env`, not in `docker-compose.override.yml`. `make demo-up`
+names its compose files explicitly, so the override file is never read and setting
+it there would do nothing while looking like it had. The demo overlay reads
+`${GATEWAY_PROVIDER-dummy}`, a single dash, so an empty value means "follow the
+model config" and an unset one means `dummy`. Zero spend stays the default.
+
 The script refuses to run while the gateway is still pinned to `dummy`, because
-that would score every case at zero, spend nothing, and look like it worked. It does
-not edit the override file for you: on a shared host that file is local state a
-script has no business rewriting, so step 4 is yours.
+that would score every case at zero, spend nothing, and look like it worked. It also
+refuses if it cannot read the gateway container at all, rather than assuming the
+best. It does not edit `infra/.env` for you in either direction: on a shared host
+that file is local state a script has no business rewriting. Steps 2 and 4 are
+yours, and the script prints the step 4 reminder on every exit path after the first
+paid call, including a failure.
 
 Two routing details are easy to get wrong and both cost a real invoke to notice.
 Routing rules are keyed on the prompt's `use_case` (`ap_invoice_extraction`), not on
@@ -575,7 +595,10 @@ Afterwards, check the three surfaces:
 | --- | --- |
 | eval dashboard | the v1 series under the 100% line on Tier-2, v2 on it |
 | gateway dashboard | routing decisions split across both providers, one policy event |
-| Jaeger | three traces carrying release_id, provider, cost, and policy status |
+| Jaeger | the three invokes, carrying release_id, provider, cost, and policy status |
+
+Filter in Jaeger rather than expecting three traces in total: the two eval runs emit
+sixty spans of their own, which is the harness working, not noise to explain away.
 
 ### Why the dashboards default to a wide time range
 
