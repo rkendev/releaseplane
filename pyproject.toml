@@ -72,7 +72,7 @@ mypy_path = ["shared/src"]
 exclude = ["evals/datasets/", "evals/src/releaseplane_evals/generator/"]
 
 [tool.pytest.ini_options]
-testpaths = ["control-plane/tests", "gateway/tests", "evals/tests"]
+testpaths = ["control-plane/tests", "gateway/tests", "evals/tests", "sdk/tests"]
 # importlib mode lets each package keep a plain (non-package) tests/ dir, so the
 # four tests/ directories do not collide as a single top-level "tests" module.
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib"

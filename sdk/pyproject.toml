@@ -12,6 +12,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
 
+[project.scripts]
+releaseplane = "releaseplane.cli:main"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

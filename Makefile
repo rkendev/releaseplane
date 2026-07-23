@@ -6,7 +6,7 @@
 # the authoritative gate.
 
 SRC := control-plane/src gateway/src evals/src sdk/src shared/src
-TESTS := control-plane/tests gateway/tests evals/tests tests
+TESTS := control-plane/tests gateway/tests evals/tests sdk/tests tests
 
 # Host port the dev stack publishes Postgres on. The committed compose uses 5432;
 # a local override may remap it (this is why `make migrate` takes PGPORT=5433).
