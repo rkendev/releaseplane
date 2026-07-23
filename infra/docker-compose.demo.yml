@@ -24,9 +24,9 @@
 # proxy vhosts (see the "Read-only demo" section of docs/RUNBOOK.md).
 #
 # `!override` replaces the port list rather than appending to it. Without it,
-# compose merges the lists and the original 0.0.0.0 binding survives. It needs
-# Compose v2.24 or newer; an older client fails to parse the merged config, which
-# is the right way to fail.
+# compose merges the lists and the original 0.0.0.0 binding survives. A client too
+# old to understand the tag fails to parse the merged config, which is the right
+# way to fail.
 #
 # Host ports are variables so this tracked file carries no one host's layout. The
 # defaults match the base compose; a host that remaps ports sets them in
@@ -63,12 +63,24 @@ services:
     ports: !override
       - "127.0.0.1:3000:3000"
     environment:
-      # Anonymous read-only access. Viewer cannot edit, and sign-up is off, so
-      # there is no path from the public URL to a write.
+      # Anonymous read-only access. Viewer cannot edit, and sign-up is off.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
       GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
+      # The proxy forwards the whole Grafana surface, so leaving authentication on
+      # would put a working credential oracle on the internet: POST /login answers
+      # 200 on the right password and 401 on the wrong one, with no rate limit in
+      # front of it. Turning both paths off makes "the public surface is read-only"
+      # true by construction rather than a claim about what a visitor bothers to
+      # try. There is nothing to administer at runtime anyway; the dashboards and
+      # the datasource are provisioned from files.
+      #
+      # To administer this instance, bring it up without this overlay and reach it
+      # over an SSH tunnel to 127.0.0.1:3000. The base keeps the admin password
+      # mounted from its secret file, so nothing is lost, only unreachable.
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_AUTH_BASIC_ENABLED: "false"
       # Snapshot sharing defaults to on and posts dashboard data to a third-party
       # host. An anonymous Viewer cannot reach it, but an owner session can, and
       # nothing here needs outbound sharing, so close the egress path outright.

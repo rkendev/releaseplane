@@ -5,6 +5,13 @@ script landing. It runs on recorded numbers: no live provider call happens durin
 recording, and none is needed. The commands below drive the local stack, and the eval
 results they reference come from two recorded baseline runs (see `docs/EVALUATION.md`).
 
+A live read-only dashboard sits alongside this recording (ADR 0009): Grafana and Jaeger,
+public through a reverse proxy, showing the same v1-blocked and v2-passed contrast from
+one prior population run. It is the clickable companion, not a replacement. This script
+still carries the argument, because the dashboard shows the outcome and the script shows
+why the outcome matters. Nothing on the public surface can write state or call a
+provider; `docs/SECURITY.md` has the boundary and `docs/RUNBOOK.md` has the bring-up.
+
 ## The headline moment
 
 A prompt change produces a new release. The eval runner scored it against the 30-case

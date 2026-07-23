@@ -195,9 +195,10 @@ a provider. The decision and its boundary are recorded in ADR 0009.
 ### Bring up with the demo overlay
 
 `infra/docker-compose.demo.yml` is opt-in. It is inert unless named on the command
-line, so a normal bring-up is unaffected by it. It needs Compose v2.24 or newer for
-the `!override` tag; an older client fails to parse the merged config rather than
-quietly keeping the wide binding.
+line, so a normal bring-up is unaffected by it. It needs a Compose version that
+understands the `!override` merge tag (verified on v5.1.0). An older client fails to
+parse the merged config rather than quietly keeping the wide binding, and the `config`
+render below is the check that it parsed.
 
 ```bash
 docker compose -p releaseplane \
@@ -235,10 +236,22 @@ docker compose -p releaseplane -f infra/docker-compose.yml \
 Anonymous Viewer can read every provisioned dashboard and can issue read-only PromQL
 through Grafana's datasource proxy. It cannot edit, create, delete, or sign up, and
 Postgres is not a Grafana datasource, so no invoice data is reachable that way.
-External snapshot sharing is off, so nothing posts dashboard data outbound. The admin
-login keeps working for the owner: the demo overlay does not touch the base's
-secret-file password mount. `docs/SECURITY.md` has the full boundary and the probes
-that confirmed it.
+External snapshot sharing is off, so nothing posts dashboard data outbound.
+
+The overlay also turns Grafana's authentication off, both the login form and basic
+auth. The proxy forwards the whole service, so a login form on it is a public
+credential oracle with nothing rate-limiting it. Nothing here needs runtime
+administration, since the dashboards and the datasource are provisioned from files.
+
+**To administer Grafana**, bring the stack up without the overlay and reach it over an
+SSH tunnel rather than opening a port:
+
+```bash
+ssh -N -L 3000:127.0.0.1:3000 <user>@<demo-host>
+# then http://localhost:3000, admin / GRAFANA_ADMIN_PASSWORD from .env
+```
+
+`docs/SECURITY.md` has the full boundary and the probes that confirmed it.
 
 Serving Grafana anonymously on the public internet means keeping it patched rather
 than leaving the pin where it was set. Check the vendor advisories before a flip and
@@ -251,17 +264,22 @@ Append to `/etc/caddy/Caddyfile`:
 
 ```
 # >>> releaseplane demo (managed) >>>
-releaseplane.85-215-55-99.sslip.io {
+releaseplane.<demo-host> {
 	reverse_proxy 127.0.0.1:3000
 	encode gzip
 }
 
-releaseplane-traces.85-215-55-99.sslip.io {
+releaseplane-traces.<demo-host> {
 	reverse_proxy 127.0.0.1:16686
 	encode gzip
 }
 # <<< releaseplane demo (managed) <<<
 ```
+
+Substitute the real hostname, the same one `DEMO_ROOT_URL` carries in `infra/.env`.
+Each block proxies a whole service rather than a path allowlist, which is why
+Grafana's own authentication is switched off in the overlay: everything Grafana
+serves is public.
 
 ```bash
 caddy validate --config /etc/caddy/Caddyfile

@@ -1,0 +1,27 @@
+# Keeps the dev-stack images current rather than merely pinned.
+#
+# ADR 0009 puts Grafana on the public internet with anonymous access, which turns
+# "the digest is pinned" from a reproducibility property into a standing patch
+# obligation. CVE-2025-3260 was an authorization bypass in Grafana's dashboard API
+# that named anonymous-auth instances specifically, so a pin left where it was
+# first set is the failure mode this guards against.
+#
+# Digests stay pinned in the compose files; Dependabot moves the pin and names the
+# release in the pull request, so an upgrade is still a reviewed commit.
+version: 2
+
+updates:
+  - package-ecosystem: docker-compose
+    directory: /infra
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "infra"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"

@@ -27,6 +27,11 @@ The public demo is Grafana and Jaeger, served read-only through the reverse prox
 that already fronts the host's other demos. Grafana runs anonymous with the Viewer
 role and opens on the eval dashboard. Jaeger serves trace search on a second vhost.
 
+The proxy forwards whole services rather than chosen paths, so Grafana's own
+authentication is part of the boundary rather than something behind it. The overlay
+turns it off: no login form, no basic auth. The public instance has no authenticated
+session to reach, and the owner administers it without the overlay over an SSH tunnel.
+
 Nothing else is publicly reachable. The control-plane API, the gateway `/invoke`,
 Postgres, MinIO, Prometheus, and the OTel collector are bound to loopback and are
 reached only by the proxy or from the host itself.
@@ -40,7 +45,7 @@ the live dashboard is the clickable companion to it.
 
 ## Rationale
 
-- The exposed surface has no write path at all, so the three controls SCOPE named as
+- The exposed surface has no write path, so the three controls SCOPE named as
   preconditions (rate limit, spend cap, kill switch) guard a risk that this shape does
   not create. A live **write** endpoint stays out of scope for exactly the original
   reasons.
@@ -49,6 +54,10 @@ the live dashboard is the clickable companion to it.
   is not a Grafana datasource, so invoice content is not reachable that way. Spans
   carry ids, model, tokens, cost, and policy counters, not invoice text
   (`docs/SCOPE.md`, observability line).
+- Turning authentication off on the public instance costs nothing real and removes a
+  password-guessing surface that nothing was bounding. The dashboards and the
+  datasource are provisioned from files, so there is no runtime administration to
+  give up.
 - The boundary is enforced by binding rather than by configuration a reader has to
   trust. Every non-public service is published on `127.0.0.1` in
   `infra/docker-compose.demo.yml`, and the check that it held is run from outside the

@@ -97,30 +97,44 @@ in any commit. Until that scrub, `--history` reports the exact commits and paths
 
 ## Public demo surface
 
-Two things are publicly reachable, both read-only: Grafana with anonymous Viewer, and
-the Jaeger trace-search UI. Both are served through the host's reverse proxy. That
-reverses the earlier recorded-only decision; ADR 0009 records why.
+Two things are publicly reachable: Grafana and the Jaeger trace-search UI, both served
+through the host's reverse proxy. That reverses the earlier recorded-only decision; ADR
+0009 records why.
 
 Everything else is unreachable from outside the host. The control-plane API, the gateway
 `/invoke`, Postgres, MinIO, Prometheus, and the OTel collector are published on
-`127.0.0.1` by `infra/docker-compose.demo.yml`, so there is no public request path to a
-write and no public spend surface. The dashboards read data from one prior owner-run
-population pass; no visitor action causes a provider call, so there is still nothing to
+`127.0.0.1` by `infra/docker-compose.demo.yml`, so there is no public request path to
+them and no public spend surface. The dashboards read data from one prior owner-run
+population pass; no visitor action causes a provider call, so there is nothing to
 rate-limit or kill-switch. A public **write** endpoint stays out of scope for the
 original reasons (`docs/SCOPE.md`): it would need a per-request rate limit, a daily spend
 cap with a counter, and an environment kill switch first.
 
-What anonymous Viewer can do is read every provisioned dashboard and issue read-only
+The proxy forwards the whole Grafana surface, not a chosen subset of paths, so anything
+Grafana serves is public. That makes Grafana's own authentication part of the boundary
+rather than something behind it. Left on, it would put a working credential oracle on the
+internet: `POST /login` answers 200 on the right password and 401 on the wrong one, with
+no rate limit in front of it and no lockout in Grafana OSS. The demo overlay therefore
+turns authentication off entirely, `GF_AUTH_DISABLE_LOGIN_FORM` and
+`GF_AUTH_BASIC_ENABLED`, so the public instance has no authenticated session to reach at
+all and read-only is a property of the configuration rather than a claim about what a
+visitor bothers to try. Verified on the pinned image: `POST /login` returns 400 whatever
+the password, and basic auth with the correct admin password returns 401 on a read and
+403 on a write. The owner administers Grafana by bringing it up without the overlay and
+reaching `127.0.0.1:3000` over an SSH tunnel; the admin password stays mounted from its
+secret file in the base, unreachable rather than removed.
+
+What an anonymous visitor can do is read every provisioned dashboard and issue read-only
 PromQL through Grafana's datasource proxy. That is accepted: the datasource is Prometheus
 only, Postgres is not a Grafana datasource, and Prometheus runs without
 `--web.enable-admin-api` and without `--web.enable-lifecycle`, so the proxy cannot reach
 a mutating endpoint. Query cost is bounded by `--query.timeout` and
 `--query.max-samples`. Spans carry ids, model, tokens, cost, and policy counters, not
 invoice text, so the Jaeger UI exposes release identity rather than customer data. Write
-paths were probed rather than assumed: anonymous `POST /api/dashboards/db`,
+paths were probed against the pinned image rather than assumed: `POST /api/dashboards/db`,
 `/api/annotations`, `/api/datasources`, and `/api/admin/settings` return 403, and
-`/api/snapshots` returns 401. External snapshot sharing is switched off, so no session
-can post dashboard data to a third-party host.
+`/api/snapshots` returns 401. External snapshot sharing is switched off, so nothing can
+post dashboard data to a third-party host.
 
 Two operational notes carry real weight here.
 
@@ -136,4 +150,8 @@ assume the same and verify the same way.
 **Grafana is kept current, not merely pinned.** Serving it anonymously on the public
 internet changes its patch posture. CVE-2025-3260 was an authorization bypass in the
 dashboard API that named anonymous-auth instances specifically, so the pinned digest
-moves forward with upstream releases rather than staying where it was first set.
+moves forward with upstream releases rather than staying where it was first set. That is
+a standing obligation, so it has a mechanism behind it rather than a promise:
+`.github/dependabot.yml` watches the compose images weekly and opens a pull request that
+moves the digest and names the release. Digests stay pinned, so an upgrade is still a
+reviewed commit.

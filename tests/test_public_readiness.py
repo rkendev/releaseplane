@@ -155,38 +155,57 @@ def test_brand_guard_excludes_itself() -> None:
     assert _run_brand_guard(str(BRAND_GUARD)).returncode == 0
 
 
+class _TaggedList(list[Any]):
+    """A YAML sequence that carried a compose merge tag, keeping the tag name so a
+    test can assert on it structurally rather than by grepping the file."""
+
+    tag: str = ""
+
+
 class _ComposeLoader(yaml.SafeLoader):
     """Compose's merge tags (`!override`, `!reset`) are not standard YAML, so a
-    plain safe_load raises on them. Keep the node's value and drop the tag."""
+    plain safe_load raises on them."""
 
 
-def _untagged(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> Any:
+def _keep_tag(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> Any:
     if isinstance(node, yaml.SequenceNode):
-        return loader.construct_sequence(node, deep=True)
+        seq = _TaggedList(loader.construct_sequence(node, deep=True))
+        seq.tag = suffix
+        return seq
     if isinstance(node, yaml.MappingNode):
         return loader.construct_mapping(node, deep=True)
     return loader.construct_scalar(node)
 
 
-_ComposeLoader.add_multi_constructor("!", _untagged)
+_ComposeLoader.add_multi_constructor("!", _keep_tag)
 
 
 def _services(path: Path) -> dict[str, dict[str, Any]]:
     # S506 flags yaml.load with a non-safe loader. _ComposeLoader subclasses
     # SafeLoader and adds one constructor that builds plain lists, dicts, and
     # strings, so it constructs no arbitrary objects; the subclass exists only to
-    # tolerate compose's `!override` tag.
+    # tolerate compose's merge tags. `!!python/...` still resolves through the
+    # SafeLoader table and is still rejected.
     parsed = yaml.load(path.read_text(encoding="utf-8"), Loader=_ComposeLoader)  # noqa: S506
     return dict(parsed.get("services", {}))
 
 
-def _publishing_services(path: Path) -> dict[str, list[str]]:
-    """Services declaring a `ports:` list, mapped to the raw port strings."""
-    return {
-        name: [str(p) for p in body["ports"]]
-        for name, body in _services(path).items()
-        if body.get("ports")
-    }
+def _published_ports(path: Path) -> dict[str, tuple[list[str], str]]:
+    """Services declaring `ports:`, mapped to the port strings and the merge tag
+    on that node (empty string when untagged).
+
+    Keyed on the presence of `ports:`, not on it being non-empty, so a service
+    that publishes nothing at all (`ports: !override []`) reads as covered. That
+    is stricter than a loopback bind, and a guard should not push a maintainer
+    away from the safer option.
+    """
+    out: dict[str, tuple[list[str], str]] = {}
+    for name, body in _services(path).items():
+        if "ports" not in body:
+            continue
+        ports = body["ports"]
+        out[name] = ([str(p) for p in ports], getattr(ports, "tag", ""))
+    return out
 
 
 # The load-bearing security property of the demo overlay: a service the base
@@ -196,17 +215,16 @@ def _publishing_services(path: Path) -> dict[str, list[str]]:
 
 
 def test_demo_overlay_covers_every_published_service() -> None:
-    base = set(_publishing_services(BASE_COMPOSE))
-    demo = set(_publishing_services(DEMO_COMPOSE))
-    missing = base - demo
+    missing = set(_published_ports(BASE_COMPOSE)) - set(_published_ports(DEMO_COMPOSE))
     assert not missing, (
         f"services published by the base compose with no loopback rebind in "
         f"{DEMO_COMPOSE.name}: {sorted(missing)}"
     )
 
 
-@pytest.mark.parametrize("service,ports", sorted(_publishing_services(DEMO_COMPOSE).items()))
-def test_demo_overlay_binds_loopback_only(service: str, ports: list[str]) -> None:
+@pytest.mark.parametrize("service,entry", sorted(_published_ports(DEMO_COMPOSE).items()))
+def test_demo_overlay_binds_loopback_only(service: str, entry: tuple[list[str], str]) -> None:
+    ports, _tag = entry
     for port in ports:
         assert port.startswith("127.0.0.1:"), (
             f"{service} publishes {port!r} in {DEMO_COMPOSE.name}; the demo overlay "
@@ -214,18 +232,27 @@ def test_demo_overlay_binds_loopback_only(service: str, ports: list[str]) -> Non
         )
 
 
-def test_demo_overlay_replaces_rather_than_appends_ports() -> None:
+@pytest.mark.parametrize("service,entry", sorted(_published_ports(DEMO_COMPOSE).items()))
+def test_demo_overlay_replaces_rather_than_appends_ports(
+    service: str, entry: tuple[list[str], str]
+) -> None:
     # Without the `!override` tag compose merges the two lists and the base's
     # 0.0.0.0 entry survives alongside the loopback one, so the tag is the
-    # difference between a closed port and an open one.
-    text = DEMO_COMPOSE.read_text(encoding="utf-8")
-    declared = len(_publishing_services(DEMO_COMPOSE))
-    assert text.count("ports: !override") == declared
+    # difference between a closed port and an open one. Asserted per service off
+    # the parsed node, so a stray mention of the tag in a comment cannot stand in
+    # for a real one.
+    _ports, tag = entry
+    assert tag == "override", (
+        f"{service} in {DEMO_COMPOSE.name} declares ports without `!override`; "
+        f"compose would append to the base list and keep its 0.0.0.0 binding"
+    )
 
 
 def test_base_compose_does_not_enable_anonymous_grafana() -> None:
     # Secure-by-default: anonymous access exists only in the opt-in overlay, so a
-    # plain bring-up never serves Grafana without a login.
+    # plain bring-up never serves Grafana without a login. This reads the inline
+    # `environment:` mapping, which is where both files set Grafana's config; an
+    # env_file or a mounted grafana.ini would need its own check.
     base_env = _services(BASE_COMPOSE)["grafana"].get("environment", {})
     assert not any("ANONYMOUS" in key for key in base_env)
     demo_env = _services(DEMO_COMPOSE)["grafana"]["environment"]
@@ -234,10 +261,21 @@ def test_base_compose_does_not_enable_anonymous_grafana() -> None:
     assert demo_env["GF_USERS_ALLOW_SIGN_UP"] == "false"
 
 
+def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
+    # The proxy forwards the whole Grafana surface, so a login form on it is a
+    # public credential oracle with nothing rate-limiting it. Both authentication
+    # paths stay off for as long as the overlay is what faces the internet.
+    demo_env = _services(DEMO_COMPOSE)["grafana"]["environment"]
+    assert demo_env["GF_AUTH_DISABLE_LOGIN_FORM"] == "true"
+    assert demo_env["GF_AUTH_BASIC_ENABLED"] == "false"
+
+
 def test_prometheus_exposes_no_mutating_endpoint() -> None:
-    # Anonymous Viewer can reach Prometheus through Grafana's datasource proxy,
-    # so neither the admin API nor the lifecycle API may be switched on.
-    command = _services(BASE_COMPOSE)["prometheus"]["command"]
+    # An anonymous visitor reaches Prometheus through Grafana's datasource proxy,
+    # so neither the admin API nor the lifecycle API may be switched on. Reading
+    # the property rather than the file shape: no `command:` at all is also fine,
+    # since the image default sets neither flag.
+    command = _services(BASE_COMPOSE)["prometheus"].get("command", [])
     assert not any("web.enable-admin-api" in flag for flag in command)
     assert not any("web.enable-lifecycle" in flag for flag in command)
 
