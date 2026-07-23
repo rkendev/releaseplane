@@ -1,0 +1,16 @@
+# Fingerprints the gitleaks secret-scan job may skip. One line per finding, each
+# an exact commit:file:rule:line, so the rule still fails on any other commit,
+# file, or line, including a new occurrence of the same pattern. This narrows the
+# scan; it never disables a rule, relaxes entropy, or excludes a path.
+#
+# docs/RUNBOOK.md carried a verification probe written as
+#   curl -u "credentials-supplied-on-stdin" ...
+# The curl-auth-user rule reads user:value after -u as a credential pair. The
+# value is a shell command substitution naming a path, not a password: the file it
+# reads is gitignored and has never been committed, which the .gitignore-coverage
+# test in tests/test_public_readiness.py asserts. The probe was rewritten to pass
+# the password on stdin (curl -K -) so it stays out of the process list on a
+# shared host, so the line is gone from the tip and this commit diff is the only
+# place it exists. The pre-flip history rewrite that docs/SECURITY.md already
+# requires for the brand tokens removes it for good, and this line goes with it.
+b03578dd04d5e98e90052e5337dccdb14f403993:docs/RUNBOOK.md:curl-auth-user:422

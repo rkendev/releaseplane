@@ -80,6 +80,15 @@ every run so neither can regress silently.
   in any commit fails the build. Before the flip to public, every key that ever touched
   the repository or the build host is rotated, including the one key used for the single
   gated cost probe.
+
+  `.gitleaksignore` narrows that scan and nothing else. Each line is an exact
+  `commit:file:rule:line` fingerprint for a finding reviewed and shown to carry no
+  secret, with the reasoning recorded beside it; the rule still fails on any other
+  commit, file, or line, and a new occurrence of the same pattern still fails. That was
+  verified by planting one. No entry may disable a rule, relax entropy, or exclude a
+  path, because those suppress findings that do not exist yet. The single entry today
+  is a documentation example whose `-u` argument reads a gitignored path through a shell
+  substitution, and it goes away with the pre-flip history rewrite below.
 - **No cross-project or internal reference leaks into new work.** A brand-guard check
   runs over every tracked file, in pre-commit and again as a standalone CI step, and
   fails on the cross-project brand token or the external Knowledge Base path that the
