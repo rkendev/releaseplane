@@ -311,17 +311,18 @@ def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
 def _caddy_upstreams() -> list[str]:
     """Every upstream address in the tracked vhost fragment.
 
-    Takes all tokens after the directive, stopping at an opening brace, so the
-    block form (`reverse_proxy 127.0.0.1:3000 {`) reads the same as the one-line
-    form and a load-balanced list (`reverse_proxy a:1 b:2`) yields both rather
-    than hiding the second.
+    Three forms have to be read, because each hides the address somewhere else:
+    the one-liner, the block form (`reverse_proxy 127.0.0.1:3000 {`), and a `to`
+    subdirective inside a block, which names no address on the directive line at
+    all. All tokens after the directive are taken, not the first, so a
+    load-balanced list yields every backend rather than only the acceptable one.
     """
     upstreams = []
     for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines():
         stripped = line.strip()
         if stripped.startswith("#"):
             continue
-        for directive in ("reverse_proxy", "forward_auth"):
+        for directive in ("reverse_proxy", "forward_auth", "to"):
             if stripped.startswith(f"{directive} "):
                 for token in stripped.split()[1:]:
                     if token.startswith("{"):
@@ -435,15 +436,17 @@ def test_caddy_vhosts_pull_in_no_other_config() -> None:
 def _caddy_site_lines() -> list[str]:
     """Every top-level line opening a site block, verbatim.
 
-    Unindented and ending in a brace is what makes a line a site address in this
-    file; everything else is a directive, a comment, or a closing brace. Returned
-    unparsed so the caller checks all of them, including comma-separated or
-    scheme-prefixed forms a stricter pattern would silently skip.
+    Unindented and ending in a brace or a comma is what makes a line part of a
+    site address in this file; everything else is a directive, a comment, or a
+    closing brace. The comma case matters: a multi-line address list puts the
+    first names on their own lines, and checking only the line that opens the
+    block would leave them unexamined. Returned unparsed so the caller checks all
+    of them, including scheme-prefixed forms a stricter pattern would skip.
     """
     return [
         line.strip()
         for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines()
-        if not line.startswith((" ", "\t", "#")) and line.strip().endswith("{")
+        if not line.startswith((" ", "\t", "#")) and line.strip().endswith(("{", ","))
     ]
 
 
@@ -487,6 +490,13 @@ def test_caddy_vhosts_refuse_the_anonymous_write_paths() -> None:
             f"anonymously and docs/SECURITY.md says it is closed"
         )
     assert "respond @refused" in text
+
+    # These paths are Grafana's, so the refusal has to sit in the Grafana site
+    # block. Matching on the file as a whole would stay green if the matcher and
+    # its respond moved into the Jaeger block, leaving Grafana wide open.
+    grafana_block = text.split(f"reverse_proxy 127.0.0.1:{PROXIED_GRAFANA_PORT}", 1)[0]
+    assert "@refused path " in grafana_block
+    assert "respond @refused" in grafana_block
 
 
 def test_caddy_vhosts_log_every_site() -> None:

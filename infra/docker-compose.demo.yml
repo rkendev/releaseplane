@@ -98,6 +98,14 @@ services:
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Two more visitor-driven egress paths, both on by default. GET
+      # /avatar/<32-hex> returned 200 in 0.57s against gravatar.com, over an
+      # unbounded hash space, so any visitor could drive outbound requests from
+      # this box at will. The news feed fetches grafana.com on page load. Neither
+      # is a vhost rule, because the right place to stop an outbound request is
+      # the process that would make it.
+      GF_USERS_DISABLE_GRAVATAR: "true"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
       # The proxy terminates TLS and forwards to loopback, so Grafana needs the
       # public origin to build correct redirects and share links.
       GF_SERVER_ROOT_URL: ${DEMO_ROOT_URL:-http://localhost:3000/}

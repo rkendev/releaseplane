@@ -306,25 +306,38 @@ disk and takes everything down at the next restart or reboot, possibly days late
 cd /path/to/releaseplane        # the fragment path below is repo-relative
 HOST=your.host.name             # no angle brackets; the real name
 LIVE=/etc/caddy/Caddyfile
-CAND=$(mktemp)                  # not a predictable name in a shared /tmp
 
 if grep -q "releaseplane demo (managed)" "$LIVE"; then
   echo "block already present; edit it in place rather than appending"
 else
+  # Alongside the live file, not in a shared /tmp: the merged content may carry a
+  # neighbouring site's credentials, and any relative `import` or `{$ENV}` in the
+  # host config resolves against the candidate's directory when Caddy adapts it.
+  CAND=$(sudo mktemp "$LIVE.cand.XXXXXX")
+  trap 'sudo rm -f "$CAND"' EXIT
   # Every step is chained. A candidate that is missing the live file's contents
   # is still valid Caddy, so an unguarded build step could install two site
   # blocks over the whole host config and drop every other site on it.
-  cp "$LIVE" "$CAND" \
-    && { echo; sed "s/<demo-host>/$HOST/" infra/caddy/releaseplane.Caddyfile; } >> "$CAND" \
-    && grep -q "releaseplane.$HOST" "$CAND" \
-    && [ "$(wc -c < "$CAND")" -gt "$(wc -c < "$LIVE")" ] \
+  sudo cp "$LIVE" "$CAND" \
+    && { echo; sed "s/<demo-host>/$HOST/" infra/caddy/releaseplane.Caddyfile; } \
+         | sudo tee -a "$CAND" > /dev/null \
+    && sudo grep -q "releaseplane.$HOST" "$CAND" \
+    && [ "$(sudo wc -c < "$CAND")" -gt "$(sudo wc -c < "$LIVE")" ] \
     && sudo caddy validate --config "$CAND" --adapter caddyfile \
     && sudo caddy reload --config "$CAND" --adapter caddyfile --force \
     && sudo cp -a "$LIVE" "$LIVE.bak.$(date +%F-%H%M)" \
-    && sudo install -m "$(stat -c %a "$LIVE")" -g "$(stat -c %G "$LIVE")" "$CAND" "$LIVE" \
+    && sudo install -m "$(stat -c %a "$LIVE")" \
+                    -o "$(stat -c %U "$LIVE")" -g "$(stat -c %G "$LIVE")" \
+                    "$CAND" "$LIVE" \
     && echo "live and installed"
 fi
 ```
+
+Check the live file for a relative `import` or a `{$ENV}` reference before running
+this. Both are resolved by the adapting process against the candidate's directory
+and the invoking environment, which is why the candidate is built next to the live
+file rather than somewhere else, and why a host that uses either deserves a look
+before a reload rather than after.
 
 Four things in that chain are there for a reason.
 
@@ -344,9 +357,18 @@ the running server and the file on disk as they were.
 `--adapter caddyfile` is needed on both commands because the candidate is not named
 `Caddyfile`, and `reload` otherwise tries to parse it as JSON.
 
-`install` reads the live file's current mode and group rather than forcing `0644`.
-The merged file may carry a neighbouring site's credentials, and this procedure has
-no business widening its permissions.
+`install` reads the live file's current mode, owner, and group rather than forcing
+`0644` and `root:root`. The merged file may carry a neighbouring site's credentials,
+so this procedure has no business widening its permissions; and on a host where
+Caddy owns its own config, changing the owner would leave it unable to read that
+config at the next restart, taking every site down.
+
+The `trap` removes the candidate on exit, since it holds the same merged content the
+permissions above exist to protect. Note also what the reload-before-install ordering
+does on a failure between the two: the running server has the new config while the
+disk still has the old one. That divergence is the safe direction, a working site
+that reverts on restart rather than a broken file that persists, but it does mean a
+failure there needs finishing rather than ignoring.
 
 The leading `echo` guards against a live file with no trailing newline, which would
 otherwise glue the fragment onto the last existing line. The fragment's delimiter
@@ -408,12 +430,10 @@ make demo-ports
 
 No line may contain `0.0.0.0`. Every published mapping must read `127.0.0.1:`;
 entries with no host mapping at all (Jaeger exposes several inside the compose
-network) are fine, since nothing on the host reaches them. Then check from a client
-that is not this host (a laptop, not an SSH session into the box), because a
-`localhost` probe passes either way. Every published port goes in the list:
+network) are fine, since nothing on the host reaches them.
 
-Take the list from the merged config rather than from a fixed set of numbers, so a
-host that remaps is covered without editing anything:
+Take the port list from the merged config rather than from a fixed set of numbers,
+so a host that remaps is covered without editing anything:
 
 ```bash
 make demo-config | grep -E '^\s+published:' | grep -oE '[0-9]+' | sort -un
@@ -431,21 +451,23 @@ Every one of those must fail from outside:
 Test-NetConnection <public-ip> -Port <each-port-from-that-list>
 ```
 
-If any raw port answers and belongs to this stack, the demo does not go live until it
-is closed. The two demo names are the only things that may answer.
-
-Use two vantages that are not this host, since a `localhost` probe passes either
-way. Anything that resolves the public IP from elsewhere works: a closed port
-returns a connection error, an open one returns something else, and the distinction
-that matters is refused versus answered rather than what the answer said.
+Use a vantage that is not this host, since a `localhost` probe passes either way: a
+laptop, not an SSH session into the box. Anything that resolves the public IP from
+elsewhere works, and a second one is worth having. A closed port returns a connection
+error and an open one returns something else; the distinction that matters is refused
+versus answered rather than what the answer said.
 
 Attribute an answering port before treating it as a failure. On a shared host,
 another project's container may hold one of these numbers, which is a finding about
 that project rather than about this stack. `docker ps --filter "publish=<port>"`
 says whose it is.
 
+If any raw port answers and belongs to this stack, the demo does not go live until it
+is closed. The two demo names are the only things that may answer.
+
 Then confirm both surfaces that are supposed to answer, and that the boundary holds
-through the proxy rather than only on loopback:
+through the proxy rather than only on loopback. Run this from the repo root, and set
+`HOST` again if this is a fresh shell:
 
 ```bash
 G="https://releaseplane.$HOST"
@@ -458,10 +480,20 @@ curl -s -o /dev/null -w 'panels   %{http_code}\n' -X POST \
   -d '{"queries":[{"refId":"A","datasource":{"uid":"prometheus","type":"prometheus"},"expr":"up","instant":true}],"from":"now-5m","to":"now"}' \
   "$G/api/ds/query"                                                    # 200
 
-for p in /api/dashboards/db /api/annotations /api/datasources /api/snapshots /api/short-urls; do
-  curl -s -o /dev/null -w "write $p %{http_code}\n" -X POST \
-    -H 'Content-Type: application/json' -d '{}' "$G$p"                 # all 4xx
+# Grafana refuses these by role.
+for p in /api/dashboards/db /api/annotations /api/datasources /api/snapshots; do
+  curl -s -o /dev/null -w "role   $p %{http_code}\n" -X POST \
+    -H 'Content-Type: application/json' -d '{}' "$G$p"                 # 401 or 403
 done
+
+# The vhost refuses these, because Grafana does not. A 405 is the proxy answering;
+# anything else means the refusal did not load on this host, whatever the tracked
+# fragment says.
+for p in /api/short-urls /api/short-urls/ /api/gnet/plugins /api/frontend-metrics /api/live/publish; do
+  curl -s -o /dev/null -w "vhost  $p %{http_code}\n" -X POST \
+    -H 'Content-Type: application/json' -d '{}' "$G$p"                 # all 405
+done
+
 curl -s -o /dev/null -w 'login    %{http_code}\n' -X POST \
   -H 'Content-Type: application/json' \
   -d '{"user":"admin","password":"x"}' "$G/login"                      # 400, no form
@@ -472,12 +504,14 @@ printf 'user = "admin:%s"\n' "$(cat infra/secrets/grafana_admin_password)" \
   | curl -s -o /dev/null -w 'basic    %{http_code}\n' -K - "$G/api/user"  # 401
 ```
 
-A 200 on the first three and a 4xx on the rest is the whole public contract. Two of
-them carry most of the weight. The `basic` line proves the real password buys
+A 200 on the first three and a 4xx on the rest is the whole public contract. Three
+lines carry most of the weight. The `basic` line proves the real password buys
 nothing through the public URL, so there is no credential worth guessing there. The
-`panels` line proves the dashboards still render: it is the one POST the surface has
-to allow, so a future method allowlist or filtering proxy that breaks the demo shows
-up here rather than in a visitor's blank screen.
+`vhost` block must show 405 specifically: those paths are open in Grafana, so any
+other code means the proxy refusal is not in force and the surface is writable. And
+the `panels` line proves the dashboards still render, since it is the one POST the
+surface has to allow, so a future method allowlist or filtering proxy that breaks the
+demo shows up here rather than in a visitor's blank screen.
 
 ### Why the dashboards default to a wide time range
 
