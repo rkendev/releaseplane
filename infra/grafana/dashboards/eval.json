@@ -14,7 +14,7 @@
       "gridPos": { "h": 4, "w": 24, "x": 0, "y": 0 },
       "options": {
         "mode": "markdown",
-        "content": "A release cannot be promoted unless its latest eval run clears every gating threshold. **Tier 1** needs 100% on all three metrics. **Tier 2** needs 100% schema validity, 100% arithmetic consistency, and at least 80% checksum match. Tier 3 is monitored, never gating (`docs/EVALUATION.md`).\n\nThe panel below plots the measured rate per release, tier, and metric. The dashed line at 100% is the Tier-1 and Tier-2 threshold: a series under it on a gating metric is a release the gate blocked. The v1 prompt sits at 90% on Tier-2 schema validity and arithmetic consistency, because it read a volume discount as a negative line item. The v2 prompt clears it."
+        "content": "A release cannot be promoted unless its latest eval run clears every gating threshold. **Tier 1** needs 100% on all three metrics. **Tier 2** needs 100% schema validity, 100% arithmetic consistency, and at least 80% checksum match. Tier 3 is monitored, never gating (`docs/EVALUATION.md`).\n\nThe panel below plots the measured rate per release, tier, and metric. The dashed line marks 100%, which is the threshold for every gating metric except Tier-2 checksum match, where 80% clears. The v1 prompt sits at 90% on Tier-2 schema validity and arithmetic consistency, under the line on two gating metrics, because it read a volume discount as a negative line item. The v2 prompt clears every threshold."
       }
     },
     {

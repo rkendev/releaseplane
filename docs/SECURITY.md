@@ -121,20 +121,25 @@ demo overlay therefore turns authentication off entirely,
 `GF_AUTH_DISABLE_LOGIN_FORM` and `GF_AUTH_BASIC_ENABLED`, so read-only is a property of
 the configuration rather than a claim about what a visitor bothers to try. Verified on the
 pinned image: `POST /login` returns 400 whatever the password, and basic auth with the
-correct admin password returns 401 on a read and 403 on a write. Two paths those switches
-do not cover, neither of which exists on this instance: a service-account API token would
-still authenticate, so none is ever minted here, and a session already written to the
-`grafana_data` volume would survive, so the volume is not carried over from an
-authenticated instance.
+correct admin password returns 401 on a read and 403 on a write. One path those switches
+do not cover: a service-account API token authenticates independently of both, so none is
+ever minted on this instance. Admin sessions are a second consideration. The
+`grafana_data` volume persists across bring-ups, so a session created during an admin
+window outlives it; log out at the end of one rather than closing the tab, and treat the
+volume as carrying credentials.
 
 Administering Grafana layers `infra/docker-compose.admin.yml` on top of the demo overlay
-(`make demo-admin`) rather than dropping it. Dropping it would republish all ten ports on
+(`make demo-admin`) rather than dropping it. Dropping it would republish every port on
 `0.0.0.0` for the length of the session, trading one password-gated login for an
 unauthenticated control-plane API, Postgres, MinIO, Prometheus, Jaeger, and both OTLP
-ports. The admin overlay changes the auth switches and nothing else; the loopback binds
-hold, anonymous access goes off, and the owner reaches `127.0.0.1:3000` over an SSH
-tunnel. The admin password stays mounted from its secret file in the base, unreachable
-rather than removed.
+ports. The admin overlay does two things: it reopens the login, and it moves Grafana to
+`127.0.0.1:3001`. The second is what makes the first safe. The vhost forwards
+`127.0.0.1:3000` unconditionally and cannot know a session is in progress, so a login
+form left on that port would be public for the length of it. Moving the instance means
+the vhost's upstream is dead and the public URL answers 502 instead. The owner reaches
+`3001` over an SSH tunnel; the admin password stays mounted from its secret file in the
+base, unreachable rather than removed. A guard asserts the admin overlay never binds the
+proxied port.
 
 What an anonymous visitor can do is read every provisioned dashboard and issue read-only
 PromQL through Grafana's datasource proxy. That is accepted: the datasource is Prometheus

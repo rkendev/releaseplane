@@ -92,8 +92,12 @@ services:
       GF_AUTH_BASIC_ENABLED: "false"
       # Snapshot sharing defaults to on and posts dashboard data to a third-party
       # host. Nothing here needs outbound sharing, and this stays set under the
-      # admin overlay too, so no session can open that egress path.
+      # admin overlay too, so no session can open that egress path. Grafana's own
+      # phone-home calls go with it: a public instance should originate no traffic
+      # a visitor did not ask for.
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       # The proxy terminates TLS and forwards to loopback, so Grafana needs the
       # public origin to build correct redirects and share links.
       GF_SERVER_ROOT_URL: ${DEMO_ROOT_URL:-http://localhost:3000/}

@@ -201,26 +201,24 @@ parse the merged config rather than quietly keeping the wide binding, and the `c
 render below is the check that it parsed.
 
 ```bash
-make demo-config                   # render first; this is where a mistake shows up
+make demo-config                        # render first; a mistake shows up here
+make demo-config | grep GF_SERVER_ROOT_URL   # must be the public origin
 make demo-up
-make migrate PGPORT=$PG_HOST_PORT  # the port infra/.env publishes, 5432 by default
+set -a; . infra/.env; set +a            # only if this host remaps ports
+make migrate PGPORT=$${PG_HOST_PORT:-5432}
 ```
 
-`make demo-up` is the supported bring-up on a public-facing host. Prefer it to a
-hand-written compose line every time: a bring-up, rebuild, or restart that forgets
-the overlay republishes all ten services on `0.0.0.0`, and the guards in
-`tests/test_public_readiness.py` are static checks that cannot catch that at runtime.
-The plain `docker compose` commands elsewhere in this runbook and in the README are
-for a laptop or a private network.
+`infra/.env` is read by compose, not by the shell, so source it before passing
+`PGPORT`. An unset `DEMO_ROOT_URL` falls back to `http://localhost:3000/`, which
+sends Grafana's redirect and share links to the visitor's own machine, so check that
+line before the first public bring-up.
 
-Before the first public bring-up, confirm the origin resolved:
-
-```bash
-make demo-config | grep GF_SERVER_ROOT_URL
-```
-
-An unset `DEMO_ROOT_URL` falls back to `http://localhost:3000/`, which sends Grafana's
-redirect and share links to the visitor's own machine.
+`make demo-up` is the supported bring-up on a public-facing host, with `demo-build`
+and `demo-down` for the rebuild and teardown. Prefer them to a hand-written compose
+line every time: a bring-up, rebuild, or restart that forgets the overlay republishes
+every service on `0.0.0.0`, and the guards in `tests/test_public_readiness.py` are
+static checks that cannot catch that at runtime. The plain `docker compose` commands
+elsewhere in this runbook and in the README are for a laptop or a private network.
 
 The overlay is last in the `-f` order, so it decides the published ports. It carries
 no host's port layout of its own: the numbers come from `PG_HOST_PORT`,
@@ -231,11 +229,6 @@ directory, and passes the matching `PGPORT=` to `make migrate`. `DEMO_ROOT_URL` 
 the public origin Grafana builds its redirect and share links from. See
 `infra/.env.example`.
 
-Check what the merged files actually render before starting anything:
-
-```bash
-make demo-config
-```
 
 ### What is exposed
 
@@ -259,19 +252,23 @@ but nothing rate-limits by source. Nothing here needs runtime administration any
 since the dashboards and the datasource are provisioned from files.
 
 **To administer Grafana**, layer the admin overlay on top rather than dropping the
-demo one. Dropping it would republish all ten ports on `0.0.0.0` for the length of
-the session, which is a far larger hole than the login it reopens:
+demo one. Dropping it would republish every port on `0.0.0.0` for the length of the
+session, which is a far larger hole than the login it reopens:
 
 ```bash
 make demo-admin
-ssh -N -L 3000:127.0.0.1:3000 <user>@<demo-host>
+ssh -N -L 3000:127.0.0.1:3001 <user>@<demo-host>
 # then http://localhost:3000, admin / GRAFANA_ADMIN_PASSWORD from .env
 make demo-up            # back to the public read-only surface
 ```
 
-Anonymous access is off while the admin overlay is on, so the public URL stops
-serving until `make demo-up` puts it back. An instance is either the public surface
-or the administered one, not both.
+Note the `3001` on the remote side. Reopening the login is not enough on its own:
+the vhost forwards `127.0.0.1:3000` whether or not an admin session is in progress,
+so leaving Grafana there would put the login form, backed by the real admin password,
+on the public hostname for the length of the session. The admin overlay moves Grafana
+to `3001`, so the vhost's upstream is dead and the public URL answers 502 until
+`make demo-up` puts it back. Which mode the instance is in follows from the port, not
+from remembering to stop the proxy first.
 
 `docs/SECURITY.md` has the full boundary and the probes that confirmed it.
 
@@ -323,7 +320,9 @@ whatever ufw says about it. Confirm which way it renders:
 make demo-ports
 ```
 
-Every port must read `127.0.0.1:`; none may read `0.0.0.0:`. Then check from a client
+No line may contain `0.0.0.0`. Every published mapping must read `127.0.0.1:`;
+entries with no host mapping at all (Jaeger exposes several inside the compose
+network) are fine, since nothing on the host reaches them. Then check from a client
 that is not this host (a laptop, not an SSH session into the box), because a
 `localhost` probe passes either way. Every published port goes in the list:
 

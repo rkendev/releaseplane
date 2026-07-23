@@ -13,7 +13,7 @@ TESTS := control-plane/tests gateway/tests evals/tests sdk/tests tests
 PGPORT ?= 5432
 
 .PHONY: check lint format typecheck test secrets lattice migrate \
-        demo-config demo-up demo-admin demo-ports
+        demo-config demo-up demo-admin demo-build demo-down demo-ports
 
 # Compose invocation for the read-only demo. Every bring-up on a public-facing
 # host must include the demo overlay, or the stack republishes on 0.0.0.0 and the
@@ -91,14 +91,26 @@ demo-up:
 	$(DEMO_COMPOSE) up -d
 
 # Same stack with Grafana's login back on, for the owner over an SSH tunnel. The
-# demo overlay stays in the file list, so the loopback binds hold; only the auth
-# switches change. Anonymous access is off for the length of the session, so the
-# public URL stops serving until `make demo-up` puts it back.
+# demo overlay stays in the file list, so the loopback binds hold. Grafana moves to
+# 127.0.0.1:3001, which takes it off the port the public vhost forwards, so the
+# public URL answers 502 until `make demo-up` puts it back. Tunnel with
+# `ssh -N -L 3000:127.0.0.1:3001 <user>@<demo-host>`.
 demo-admin:
 	$(DEMO_COMPOSE) -f infra/docker-compose.admin.yml up -d
 
-# The exposure check, on the host. Every line must read 127.0.0.1; none may read
-# 0.0.0.0. This is necessary and not sufficient: the gate that counts is run from
-# a client outside the host (docs/RUNBOOK.md).
+# Rebuild the app images from current source and restart. The rebuild step is one
+# of the two things most likely to be run on the demo host, and a plain
+# `docker compose up -d --build` there would drop the overlay and republish
+# everything on 0.0.0.0.
+demo-build:
+	$(DEMO_COMPOSE) up -d --build
+
+# Stop the stack, keeping the volumes (and so the populated demo data).
+demo-down:
+	$(DEMO_COMPOSE) down
+
+# The exposure check, on the host. No line may contain 0.0.0.0. This is necessary
+# and not sufficient: the gate that counts is run from a client outside the host
+# (docs/RUNBOOK.md).
 demo-ports:
 	@docker ps --filter "name=releaseplane-" --format '{{.Names}}\t{{.Ports}}'

@@ -34,7 +34,14 @@ role and opens on the eval dashboard. Jaeger serves trace search on a second vho
 The proxy forwards whole services rather than chosen paths, so Grafana's own
 authentication is part of the boundary rather than something behind it. The overlay
 turns it off: no login form, no basic auth. The public instance has no authenticated
-session to reach, and the owner administers it without the overlay over an SSH tunnel.
+session to reach.
+
+Administering it layers a second overlay on top of the first rather than dropping it,
+so the loopback binds never come off. That overlay reopens the login and moves
+Grafana off the port the vhost forwards, so the public URL answers 502 for the length
+of the session instead of serving a login form. The owner reaches the moved port over
+an SSH tunnel. Which mode the instance is in follows from the port rather than from
+remembering to stop the proxy first.
 
 Nothing else is publicly reachable. The control-plane API, the gateway `/invoke`,
 Postgres, MinIO, Prometheus, and the OTel collector are bound to loopback and are

@@ -17,18 +17,34 @@
 #
 # Reach it over an SSH tunnel rather than by opening a port:
 #
-#   ssh -N -L 3000:127.0.0.1:3000 <user>@<demo-host>
+#   ssh -N -L 3000:127.0.0.1:3001 <user>@<demo-host>
 #
-# Anonymous access goes off while this is on, so the public URL stops serving
-# during an admin session. That is deliberate: an instance is either the public
-# read-only surface or the administered one, not both at once.
+# Note the 3001. Turning the login back on is not enough on its own, because the
+# proxy vhost forwards 127.0.0.1:3000 unconditionally and does not know an admin
+# session is in progress. Leaving Grafana on that port would put the login form,
+# backed by the real admin password, on the public hostname for the length of the
+# session, which is the credential oracle the demo overlay exists to remove. So
+# this overlay also moves Grafana off the proxied port: the vhost's upstream is
+# then dead and the public URL answers 502 rather than a login form.
+#
+# An instance is the public read-only surface or the administered one, never both,
+# and which one it is follows from the port rather than from remembering to stop
+# the proxy first.
 
 services:
   grafana:
+    # 3001, not 3000. See above: this is what actually takes the instance off the
+    # public vhost. Still loopback, so the tunnel is the only way in.
+    ports: !override
+      - "127.0.0.1:3001:3000"
     environment:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_AUTH_DISABLE_LOGIN_FORM: "false"
       GF_AUTH_BASIC_ENABLED: "true"
+      # The tunnel presents Grafana as http://localhost:3000, so point it there.
+      # Keeping the public origin would bounce an admin login onto the public
+      # hostname, which is not serving this instance during the session.
+      GF_SERVER_ROOT_URL: http://localhost:3000/
       # Grafana defaults cookie_secure to false. The tunnel is plain HTTP on
       # localhost, so leave it there; the session never crosses the network
       # unencrypted because ssh carries it.

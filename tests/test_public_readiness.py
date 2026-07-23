@@ -307,17 +307,37 @@ def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
     assert demo_env["GF_SNAPSHOTS_EXTERNAL_ENABLED"] == "false"
 
 
+PROXIED_GRAFANA_PORT = "3000"
+
+
 def test_admin_overlay_keeps_the_loopback_binds() -> None:
     # The admin overlay layers on top of the demo one to reopen the login. It must
-    # never republish a port: a bring-up that drops the demo overlay to administer
-    # Grafana would put all ten services back on 0.0.0.0, which is a far larger
-    # hole than the login it reopens.
-    assert not _published_ports(ADMIN_COMPOSE), (
-        f"{ADMIN_COMPOSE.name} declares ports; it must change only the auth "
-        f"switches and inherit every binding from the demo overlay"
-    )
+    # never widen a binding: a bring-up that drops the demo overlay to administer
+    # Grafana would put every service back on 0.0.0.0, which is a far larger hole
+    # than the login it reopens.
+    for service, (ports, _tag) in _published_ports(ADMIN_COMPOSE).items():
+        for port in ports:
+            assert _bind_address(port) == "127.0.0.1", (
+                f"{service} publishes {port!r} in {ADMIN_COMPOSE.name} without a " f"loopback bind"
+            )
     admin_env = _services(ADMIN_COMPOSE)["grafana"]["environment"]
     assert admin_env["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+
+
+def test_admin_overlay_moves_grafana_off_the_proxied_port() -> None:
+    # Reopening the login is only safe if the instance leaves the port the public
+    # vhost forwards. Otherwise an admin session puts the login form, backed by the
+    # real admin password, on the public hostname for as long as it lasts. The
+    # vhost's upstream must be dead during the session, not merely unwelcoming.
+    ports, _tag = _published_ports(ADMIN_COMPOSE)["grafana"]
+    assert ports, f"{ADMIN_COMPOSE.name} must republish grafana off the proxied port"
+    for port in ports:
+        host_port = str(port).split(":")[1] if not isinstance(port, dict) else ""
+        assert host_port != PROXIED_GRAFANA_PORT, (
+            f"{ADMIN_COMPOSE.name} leaves grafana on host port "
+            f"{PROXIED_GRAFANA_PORT}, which the public vhost forwards; an admin "
+            f"session would serve a login form on the public hostname"
+        )
 
 
 # An anonymous visitor reaches Prometheus through Grafana's datasource proxy, so
@@ -345,6 +365,22 @@ def test_prometheus_exposes_no_mutating_endpoint(compose: Path) -> None:
             f"{compose.name} passes {name} to Prometheus, which is not on the "
             f"read-only allowlist; the datasource proxy is publicly reachable"
         )
+
+
+def test_demo_make_targets_include_the_overlay() -> None:
+    # The runbook points at these targets as the thing that keeps a bring-up from
+    # forgetting the overlay, so the file list they carry is load-bearing. The
+    # parsing guards above check what the overlay says; this checks that the
+    # documented way to run it actually composes it in.
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    assert "-f infra/docker-compose.demo.yml" in makefile
+    for target in ("demo-up:", "demo-admin:", "demo-config:"):
+        assert target in makefile, f"Makefile has no {target} target"
+    # demo-admin layers, never replaces: it names the admin file in addition to
+    # the shared DEMO_COMPOSE invocation rather than building its own list.
+    admin_recipe = makefile.split("demo-admin:", 1)[1].split("\n\n", 1)[0]
+    assert "$(DEMO_COMPOSE)" in admin_recipe
+    assert "-f infra/docker-compose.admin.yml" in admin_recipe
 
 
 def test_ci_postgres_matches_the_dev_stack_digest() -> None:
