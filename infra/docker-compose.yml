@@ -72,7 +72,7 @@ services:
       - "4317"  # internal only
 
   prometheus:
-    image: prom/prometheus:v3.0.1@sha256:565ee86501224ebbb98fc10b332fa54440b100469924003359edf49cbce374bd
+    image: prom/prometheus:v3.13.1@sha256:3c42b892cf723fa54d2f262c37a0e1f80aa8c8ddb1da7b9b0df9455a35a7f893
     container_name: releaseplane-prometheus
     # The image defaults to the first two flags only; naming any command replaces
     # the whole list, so both are restated. Retention is long because the eval
