@@ -297,6 +297,25 @@ def test_base_compose_does_not_enable_anonymous_grafana() -> None:
     assert demo_env["GF_USERS_ALLOW_SIGN_UP"] == "false"
 
 
+def test_demo_overlay_defaults_the_gateway_to_zero_spend() -> None:
+    """The single dash in `${GATEWAY_PROVIDER-dummy}` is load-bearing.
+
+    With `:-` an empty value falls back to `dummy`, so an operator who unpinned to
+    run the population pass would get a stack that silently spends nothing and
+    scores zero on every case. With `-` an empty value means "follow the model
+    config", which is what per-request provider selection needs. A future edit to
+    `:-` would read as a tidy-up and would be a real regression, so it is asserted
+    on the literal as well as on the rendered default.
+    """
+    text = DEMO_COMPOSE.read_text(encoding="utf-8")
+    assert "${GATEWAY_PROVIDER-dummy}" in text
+    assert "${GATEWAY_PROVIDER:-dummy}" not in text
+    # And unset still means dummy, so a plain bring-up cannot reach a provider.
+    assert _services(DEMO_COMPOSE)["gateway"]["environment"]["GATEWAY_PROVIDER"] == (
+        "${GATEWAY_PROVIDER-dummy}"
+    )
+
+
 def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
     # The proxy forwards the whole Grafana surface, so a login form on it is a
     # public credential oracle and nothing rate-limits by source. Both
@@ -560,11 +579,23 @@ def test_population_script_is_syntactically_valid() -> None:
 
 
 def test_population_script_is_not_driven_as_a_spend_path_by_ci() -> None:
-    # CI does reach the script: the test above runs it, on purpose, to prove the
-    # gate refuses. What must not exist is a step that drives it as a spend path,
-    # so no workflow step and no make target may name it.
-    assert "populate_demo" not in CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "populate_demo" not in (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    """No CI step and no make target may invoke the spend script.
+
+    CI does reach it: the test above runs it, on purpose, to prove the gate
+    refuses. What must not exist is a step that drives it as a spend path.
+    Comments are stripped before checking, since naming the script to explain why
+    a step is wrapped in the zero-call guard is documentation, not invocation, and
+    a guard that cannot tell those apart pushes toward saying less.
+    """
+    for path in (CI_WORKFLOW, REPO_ROOT / "Makefile"):
+        executable = [
+            line
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+        ]
+        assert "populate_demo" not in "\n".join(
+            executable
+        ), f"{path.name} invokes populate_demo.sh outside a comment"
 
 
 def test_demo_make_targets_include_the_overlay() -> None:

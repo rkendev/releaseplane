@@ -315,8 +315,11 @@ package; neither plane imports the other's internals.
   metric-name keys in `summary_json` are a cross-plane string contract, restated
   in the gate so the control plane does not import the evals package.
 - The runner uses whatever provider the gateway is configured with, so the test
-  suite runs it on DummyProvider (zero API calls) and the one live-spend path is
-  the gated `evals/scripts/run_eval_live.py` against a claude-provider gateway.
+  suite runs it on DummyProvider (zero API calls). Two gated paths drive it live,
+  both owner-run and neither reachable from CI: `evals/scripts/run_eval_live.py`
+  against a claude-provider gateway, and `infra/scripts/populate_demo.sh`, which
+  runs it twice against an unpinned gateway to put real data behind the public
+  dashboards (ADR 0009). Each refuses to start without an explicit acknowledgement.
 - The control plane exports eval metrics on `/metrics`
   (`control_plane_eval_runs_total`, `control_plane_eval_pass_rate`), which the
   ReleasePlane Eval Grafana dashboard reads.

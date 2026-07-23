@@ -82,10 +82,22 @@ jobs:
         run: git ls-files -z | xargs -0 uv run python tools/brand_guard.py
 
       # Repo-level presence and public-readiness checks (lattice wiring, .gitignore
-      # coverage of secrets, the brand guard's own behavior). These live in the
-      # root tests/ tree, outside the package testpaths make check runs.
-      - name: Repo-level guards
-        run: make lattice
+      # coverage of secrets, the demo overlay's exposure boundary, the brand
+      # guard's own behavior). These live in the root tests/ tree, outside the
+      # package testpaths make check runs.
+      #
+      # Under the same zero-call grep as make check below. This step executes
+      # infra/scripts/populate_demo.sh on purpose, to prove its spend gate refuses,
+      # and that script is the one thing in the repo whose whole job is to reach a
+      # provider. The gate holds by inspection, so this is the belt to that brace.
+      - name: Repo-level guards (zero API calls)
+        run: |
+          set -o pipefail
+          make lattice 2>&1 | tee make-lattice.log
+          if grep -Eqi "api\.(anthropic|openai)\.com" make-lattice.log; then
+            echo "a repo-level guard reached a provider API; the build must make zero live calls"
+            exit 1
+          fi
 
       # ruff + mypy on the source, then pytest. The integration tests build the
       # schema against the Postgres service and exercise the registry, promote,

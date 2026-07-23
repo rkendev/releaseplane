@@ -61,9 +61,13 @@ die() { printf 'error: %s\n' "$*" >&2; exit 1; }
 # Any exit after the first paid step leaves a gateway that can spend, so the
 # reminder has to survive a failure, not only a clean finish. A bare `exit 1` in
 # the middle of the run would otherwise scroll the last instruction off the plan.
-SPENT=0
+# Set as soon as the pin check confirms the gateway is unpinned, not when the first
+# call is made. By then the operator has already unpinned, so a failure anywhere in
+# between (an unreachable control plane, a missing secret, a seed error) leaves a
+# spend-capable stack just the same and still needs the reminder.
+UNPINNED=0
 repin_notice() {
-  [ "$SPENT" = "1" ] || return 0
+  [ "$UNPINNED" = "1" ] || return 0
   cat <<'EOF'
 
 === re-pin the gateway before walking away ===
@@ -120,12 +124,29 @@ if [ "$DRY_RUN" = "0" ]; then
 Is the stack up under the name releaseplane-gateway? Without this the dummy-pin
 check cannot run, and a pinned gateway would score 0 while spending nothing."
   GATEWAY_PINNED="$(printf '%s' "$GATEWAY_ENV" | sed -n 's/^GATEWAY_PROVIDER=//p')"
-  if [ "$GATEWAY_PINNED" = "dummy" ]; then
-    die "the gateway is pinned to GATEWAY_PROVIDER=dummy, so this would score 0 and spend nothing.
-Set GATEWAY_PROVIDER= (empty) in infra/.env, run 'make demo-up', then re-run this.
-Writing the keys matters before the bring-up, not after: the provider registry is
+  # Empty, not merely "not dummy". Any non-empty override wins over the routed
+  # model config for every request (`provider_override() or config.provider`), so
+  # GATEWAY_PROVIDER=claude runs both evals at full price, matches the routing rule,
+  # and then still serves the cost-tier invoke on claude. The run costs the whole
+  # estimate and the cost-routing beat is simply absent from the dashboard. That
+  # value is worth naming because two other places recommend it for a different
+  # purpose: docs/RUNBOOK.md's gate walkthrough and evals/scripts/run_eval_live.py
+  # both want a claude-pinned gateway, which is right for a single-provider eval and
+  # wrong here.
+  if [ -n "$GATEWAY_PINNED" ]; then
+    die "the gateway has GATEWAY_PROVIDER=$GATEWAY_PINNED, which must be empty for this run.
+
+An override wins over the routed model config, so any non-empty value serves every
+request on that one provider:
+  dummy   scores 0 on both evals and spends nothing, while looking like it worked
+  claude  spends the full estimate and still serves the gpt-4o-mini invoke on claude,
+          so the cost-routing beat never appears and the run has to be repeated
+
+Set GATEWAY_PROVIDER= (empty, no value) in infra/.env, run 'make demo-up', then
+re-run this. Write the keys before the bring-up, not after: the provider registry is
 built once at startup, so a key added later is not in it."
   fi
+  UNPINNED=1
 fi
 
 curl -sf "$CP/healthz" > /dev/null || die "control plane is not answering at $CP"
@@ -241,7 +262,6 @@ EOF
   exit 0
 fi
 
-SPENT=1
 
 say "v1 release: live eval against the pinned Sonnet 4.6 (spends)"
 CONTROL_PLANE_URL="$CP" GATEWAY_URL="$GW" \
@@ -252,16 +272,29 @@ CONTROL_PLANE_URL="$CP" GATEWAY_URL="$GW" \
 # set -e with both evals already paid for.
 request() {
   local method="$1" url="$2" body="${3:-}"
-  local response code
+  local response
+  # `|| true` so a transport failure (refused, timed out) reports as 000 instead of
+  # ending the run through set -e with money already spent and nothing said.
   if [ -n "$body" ]; then
     response=$(curl -s -w '\n%{http_code}' -X "$method" "$url" \
-      -H 'content-type: application/json' -d "$body")
+      -H 'content-type: application/json' -d "$body" || true)
   else
-    response=$(curl -s -w '\n%{http_code}' -X "$method" "$url")
+    response=$(curl -s -w '\n%{http_code}' -X "$method" "$url" || true)
   fi
-  code=$(printf '%s' "$response" | tail -n1)
+  if [ -z "$response" ]; then
+    REQUEST_CODE=000
+    REQUEST_BODY=""
+    return 0
+  fi
+  REQUEST_CODE=$(printf '%s' "$response" | tail -n1)
   REQUEST_BODY=$(printf '%s' "$response" | sed '$d')
-  REQUEST_CODE="$code"
+}
+
+# jq on a body that is not JSON would exit non-zero under pipefail, which after the
+# first paid call is the failure mode this whole section exists to avoid. Fall back
+# to the raw text rather than to an exit.
+detail_of() {
+  printf '%s' "$1" | jq -r "${2:-.detail // .}" 2>/dev/null || printf '%s' "$1" | head -c 300
 }
 
 say "v1 promotion: the gate should refuse this"
@@ -269,7 +302,7 @@ say "v1 promotion: the gate should refuse this"
 # passed, which is a finding about the dataset or the model, not a success.
 request POST "$CP/releases/$V1_RELEASE/promote"
 if [ "$REQUEST_CODE" = "409" ]; then
-  printf '%s' "$REQUEST_BODY" | jq -r .detail
+  detail_of "$REQUEST_BODY"; echo
 else
   printf 'warning: v1 promotion returned %s, expected 409. The blocked-release half\n' "$REQUEST_CODE"
   printf 'of the dashboard story will not be there. Check the eval summary above.\n'
@@ -277,8 +310,15 @@ fi
 
 # ------------------------------------------------------- v2: the gate passes it
 
+# Through request(), not release_for_version: this one runs after the v1 eval is
+# paid for, so a failure has to report rather than exit silently.
 say "creating the v2 release"
-V2_RELEASE=$(release_for_version v2)
+V2_VERSION=$(curl -s "$CP/prompts/$PROMPT_ID/versions" | jq -r '.[] | select(.version=="v2") | .id')
+[ -n "$V2_VERSION" ] && [ "$V2_VERSION" != "null" ] || die "prompt version v2 not found (the v1 eval has already been paid for)"
+request POST "$CP/releases" \
+  "{\"prompt_version_id\":\"$V2_VERSION\",\"model_config_id\":\"$MODEL_ID\",\"policy_bundle_id\":\"$BUNDLE_ID\"}"
+[ "$REQUEST_CODE" = "201" ] || die "creating the v2 release returned $REQUEST_CODE: $(detail_of "$REQUEST_BODY")"
+V2_RELEASE=$(printf '%s' "$REQUEST_BODY" | jq -r .id)
 echo "release $V2_RELEASE"
 
 say "v2 release: live eval against the pinned Sonnet 4.6 (spends)"
@@ -292,7 +332,7 @@ for hop in 1 2; do
     printf 'hop %s: %s\n' "$hop" "$(printf '%s' "$REQUEST_BODY" | jq -r .stage)"
   else
     printf 'warning: promote hop %s returned %s: %s\n' \
-      "$hop" "$REQUEST_CODE" "$(printf '%s' "$REQUEST_BODY" | jq -r '.detail // .')"
+      "$hop" "$REQUEST_CODE" "$(detail_of "$REQUEST_BODY")"
     printf 'The release is not active, so the invokes below have nothing to resolve.\n'
     break
   fi
@@ -323,11 +363,10 @@ invoke() {
      + (if $h == "" then {} else {routing_hint: $h} end)')
   request POST "$GW/invoke" "$body"
   if [ "$REQUEST_CODE" = "200" ]; then
-    printf '%s' "$REQUEST_BODY" | jq -r '.metadata
-      | "provider=\(.provider) model=\(.model) cost=\(.cost_estimate_usd) policy=\(.policy_status) checks=\(.policy_checks_applied)"'
+    detail_of "$REQUEST_BODY" '.metadata | "provider=\(.provider) model=\(.model) cost=\(.cost_estimate_usd) policy=\(.policy_status) checks=\(.policy_checks_applied)"'; echo
   else
     printf 'warning: invoke returned %s: %s\n' \
-      "$REQUEST_CODE" "$(printf '%s' "$REQUEST_BODY" | jq -r '.detail // .' | head -c 300)"
+      "$REQUEST_CODE" "$(detail_of "$REQUEST_BODY")"
     printf 'The panels for this one will be empty.\n'
   fi
 }

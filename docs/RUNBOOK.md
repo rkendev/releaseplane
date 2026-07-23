@@ -541,8 +541,11 @@ infra/scripts/populate_demo.sh --dry-run
 
 That does everything costing nothing (preconditions, seeding, the gpt-4o-mini model
 config and its routing rule, the dataset load, and creating the v1 release) and
-stops before the first eval. It runs against the dummy-pinned stack, which is the
-normal state, so there is no reason not to run it.
+stops before the first eval. Free is not the same as read-only: it creates the
+model config, the routing rule, the dataset, and a draft release for real, and the
+routing rules API has no delete, so repeated dry runs accumulate draft releases.
+That is the price of rehearsing, and it is a good trade against discovering the
+same problem after paying.
 
 Then the real one. The order matters, and step 1 is the one that is easy to get
 backwards:
@@ -566,6 +569,7 @@ sed -i '/^GATEWAY_PROVIDER=$/d' infra/.env
 make demo-up
 docker inspect releaseplane-gateway \
   --format '{{range .Config.Env}}{{println .}}{{end}}' | grep GATEWAY_PROVIDER
+#   must show dummy again
 ```
 
 The unpin goes in `infra/.env`, not in `docker-compose.override.yml`. `make demo-up`
@@ -574,8 +578,11 @@ it there would do nothing while looking like it had. The demo overlay reads
 `${GATEWAY_PROVIDER-dummy}`, a single dash, so an empty value means "follow the
 model config" and an unset one means `dummy`. Zero spend stays the default.
 
-The script refuses to run while the gateway is still pinned to `dummy`, because
-that would score every case at zero, spend nothing, and look like it worked. It also
+The script refuses to run unless `GATEWAY_PROVIDER` is empty, not merely
+different from `dummy`. Any non-empty value wins over the routed model config for
+every request, so `dummy` scores zero and spends nothing while looking like it
+worked, and `claude` spends the whole estimate and still serves the gpt-4o-mini
+invoke on claude, leaving no cost-routing beat. Both are named in the refusal. It also
 refuses if it cannot read the gateway container at all, rather than assuming the
 best. It does not edit `infra/.env` for you in either direction: on a shared host
 that file is local state a script has no business rewriting. Steps 2 and 4 are
