@@ -201,11 +201,26 @@ parse the merged config rather than quietly keeping the wide binding, and the `c
 render below is the check that it parsed.
 
 ```bash
-docker compose -p releaseplane \
-  -f infra/docker-compose.yml \
-  -f infra/docker-compose.demo.yml up -d
-make migrate
+make demo-config                   # render first; this is where a mistake shows up
+make demo-up
+make migrate PGPORT=$PG_HOST_PORT  # the port infra/.env publishes, 5432 by default
 ```
+
+`make demo-up` is the supported bring-up on a public-facing host. Prefer it to a
+hand-written compose line every time: a bring-up, rebuild, or restart that forgets
+the overlay republishes all ten services on `0.0.0.0`, and the guards in
+`tests/test_public_readiness.py` are static checks that cannot catch that at runtime.
+The plain `docker compose` commands elsewhere in this runbook and in the README are
+for a laptop or a private network.
+
+Before the first public bring-up, confirm the origin resolved:
+
+```bash
+make demo-config | grep GF_SERVER_ROOT_URL
+```
+
+An unset `DEMO_ROOT_URL` falls back to `http://localhost:3000/`, which sends Grafana's
+redirect and share links to the visitor's own machine.
 
 The overlay is last in the `-f` order, so it decides the published ports. It carries
 no host's port layout of its own: the numbers come from `PG_HOST_PORT`,
@@ -219,8 +234,7 @@ the public origin Grafana builds its redirect and share links from. See
 Check what the merged files actually render before starting anything:
 
 ```bash
-docker compose -p releaseplane -f infra/docker-compose.yml \
-  -f infra/docker-compose.demo.yml config
+make demo-config
 ```
 
 ### What is exposed
@@ -240,16 +254,24 @@ External snapshot sharing is off, so nothing posts dashboard data outbound.
 
 The overlay also turns Grafana's authentication off, both the login form and basic
 auth. The proxy forwards the whole service, so a login form on it is a public
-credential oracle with nothing rate-limiting it. Nothing here needs runtime
-administration, since the dashboards and the datasource are provisioned from files.
+credential oracle: Grafana's brute-force lockout bounds guessing one known account,
+but nothing rate-limits by source. Nothing here needs runtime administration anyway,
+since the dashboards and the datasource are provisioned from files.
 
-**To administer Grafana**, bring the stack up without the overlay and reach it over an
-SSH tunnel rather than opening a port:
+**To administer Grafana**, layer the admin overlay on top rather than dropping the
+demo one. Dropping it would republish all ten ports on `0.0.0.0` for the length of
+the session, which is a far larger hole than the login it reopens:
 
 ```bash
+make demo-admin
 ssh -N -L 3000:127.0.0.1:3000 <user>@<demo-host>
 # then http://localhost:3000, admin / GRAFANA_ADMIN_PASSWORD from .env
+make demo-up            # back to the public read-only surface
 ```
+
+Anonymous access is off while the admin overlay is on, so the public URL stops
+serving until `make demo-up` puts it back. An instance is either the public surface
+or the administered one, not both.
 
 `docs/SECURITY.md` has the full boundary and the probes that confirmed it.
 
@@ -298,8 +320,7 @@ wires a `DOCKER-USER` rule, a published container port is reachable on the publi
 whatever ufw says about it. Confirm which way it renders:
 
 ```bash
-docker compose -p releaseplane -f infra/docker-compose.yml \
-  -f infra/docker-compose.demo.yml ps
+make demo-ports
 ```
 
 Every port must read `127.0.0.1:`; none may read `0.0.0.0:`. Then check from a client
@@ -328,10 +349,12 @@ use, and leave it wide for the demo.
 
 One limit before restarting anything: the control-plane counters and gauges live in
 that process, not in the database. After a control-plane restart the samples already
-in the TSDB still render, so the timeseries panels keep the story, but the run
-counters restart at zero. Jaeger all-in-one holds traces in memory, so its container
-has to stay up for the trace links to resolve. Keep the stack running between demos
-rather than cycling it.
+in the TSDB still render, so the timeseries panels keep the story, but the metrics
+themselves are labelled and have no child until the next run, so they are absent from
+`/metrics` rather than zero. The "Total eval runs" stat therefore reads no data, not
+0, until an eval runs again. Jaeger all-in-one holds traces in memory, so its
+container has to stay up for the trace links to resolve. Keep the stack running
+between demos rather than cycling it.
 
 ## Common failure modes
 

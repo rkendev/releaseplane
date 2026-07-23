@@ -7,7 +7,15 @@
 # first set is the failure mode this guards against.
 #
 # Digests stay pinned in the compose files; Dependabot moves the pin and names the
-# release in the pull request, so an upgrade is still a reviewed commit.
+# release in the pull request, so an upgrade is still a reviewed commit. A Postgres
+# bump has to carry the CI workflow's service pin with it, since the docker-compose
+# updater does not touch `services.image` in a workflow; a guard in
+# tests/test_public_readiness.py fails the build if the two drift.
+#
+# Check the first run in the repository's Dependabot log: docker-compose.demo.yml
+# carries compose's `!override` merge tag, which is valid compose and not valid
+# plain YAML, and a parser that does not expect it errors on the file. That would
+# surface as a Dependabot job error rather than a CI failure.
 version: 2
 
 updates:

@@ -113,23 +113,37 @@ cap with a counter, and an environment kill switch first.
 The proxy forwards the whole Grafana surface, not a chosen subset of paths, so anything
 Grafana serves is public. That makes Grafana's own authentication part of the boundary
 rather than something behind it. Left on, it would put a working credential oracle on the
-internet: `POST /login` answers 200 on the right password and 401 on the wrong one, with
-no rate limit in front of it and no lockout in Grafana OSS. The demo overlay therefore
-turns authentication off entirely, `GF_AUTH_DISABLE_LOGIN_FORM` and
-`GF_AUTH_BASIC_ENABLED`, so the public instance has no authenticated session to reach at
-all and read-only is a property of the configuration rather than a claim about what a
-visitor bothers to try. Verified on the pinned image: `POST /login` returns 400 whatever
-the password, and basic auth with the correct admin password returns 401 on a read and
-403 on a write. The owner administers Grafana by bringing it up without the overlay and
-reaching `127.0.0.1:3000` over an SSH tunnel; the admin password stays mounted from its
-secret file in the base, unreachable rather than removed.
+internet: `POST /login` answers 200 on the right password and 401 on the wrong one.
+Grafana OSS does lock a user out after five failed attempts
+(`disable_brute_force_login_protection` defaults to false), which bounds guessing one
+known account but not enumeration across accounts, and nothing rate-limits by source. The
+demo overlay therefore turns authentication off entirely,
+`GF_AUTH_DISABLE_LOGIN_FORM` and `GF_AUTH_BASIC_ENABLED`, so read-only is a property of
+the configuration rather than a claim about what a visitor bothers to try. Verified on the
+pinned image: `POST /login` returns 400 whatever the password, and basic auth with the
+correct admin password returns 401 on a read and 403 on a write. Two paths those switches
+do not cover, neither of which exists on this instance: a service-account API token would
+still authenticate, so none is ever minted here, and a session already written to the
+`grafana_data` volume would survive, so the volume is not carried over from an
+authenticated instance.
+
+Administering Grafana layers `infra/docker-compose.admin.yml` on top of the demo overlay
+(`make demo-admin`) rather than dropping it. Dropping it would republish all ten ports on
+`0.0.0.0` for the length of the session, trading one password-gated login for an
+unauthenticated control-plane API, Postgres, MinIO, Prometheus, Jaeger, and both OTLP
+ports. The admin overlay changes the auth switches and nothing else; the loopback binds
+hold, anonymous access goes off, and the owner reaches `127.0.0.1:3000` over an SSH
+tunnel. The admin password stays mounted from its secret file in the base, unreachable
+rather than removed.
 
 What an anonymous visitor can do is read every provisioned dashboard and issue read-only
 PromQL through Grafana's datasource proxy. That is accepted: the datasource is Prometheus
 only, Postgres is not a Grafana datasource, and Prometheus runs without
 `--web.enable-admin-api` and without `--web.enable-lifecycle`, so the proxy cannot reach
-a mutating endpoint. Query cost is bounded by `--query.timeout` and
-`--query.max-samples`. Spans carry ids, model, tokens, cost, and policy counters, not
+a mutating endpoint. Single-query cost is bounded by `--query.timeout` and
+`--query.max-samples`; the aggregate is not, since nothing rate-limits the datasource
+proxy, so the residual risk is compute exhaustion on an idle box rather than data
+exposure. Spans carry ids, model, tokens, cost, and policy counters, not
 invoice text, so the Jaeger UI exposes release identity rather than customer data. Write
 paths were probed against the pinned image rather than assumed: `POST /api/dashboards/db`,
 `/api/annotations`, `/api/datasources`, and `/api/admin/settings` return 403, and

@@ -40,6 +40,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "httpx>=0.28",
+    # The root tests/ tree parses the compose files, so pyyaml is a direct
+    # dependency here rather than one inherited from control-plane.
+    "pyyaml>=6.0",
     "types-PyYAML",
     "types-jsonschema",
 ]

@@ -12,7 +12,16 @@ TESTS := control-plane/tests gateway/tests evals/tests sdk/tests tests
 # a local override may remap it (this is why `make migrate` takes PGPORT=5433).
 PGPORT ?= 5432
 
-.PHONY: check lint format typecheck test secrets lattice migrate
+.PHONY: check lint format typecheck test secrets lattice migrate \
+        demo-config demo-up demo-admin demo-ports
+
+# Compose invocation for the read-only demo. Every bring-up on a public-facing
+# host must include the demo overlay, or the stack republishes on 0.0.0.0 and the
+# exposure boundary is gone until someone notices. These targets exist so that is
+# one word rather than a file list to remember.
+DEMO_COMPOSE := docker compose -p releaseplane \
+	-f infra/docker-compose.yml \
+	-f infra/docker-compose.demo.yml
 
 check: lint typecheck test
 
@@ -69,3 +78,27 @@ migrate:
 	DATABASE_URL='postgresql+asyncpg://releaseplane@localhost:$(PGPORT)/releaseplane' \
 	DATABASE_PASSWORD_FILE='$(CURDIR)/infra/secrets/postgres_password' \
 	uv run alembic upgrade head
+
+# Render the merged demo config without starting anything. Run this before a
+# bring-up on a public host: it is where a missing overlay or an unset
+# DEMO_ROOT_URL shows up.
+demo-config:
+	$(DEMO_COMPOSE) config
+
+# Bring the stack up as the public read-only surface. See the "Read-only demo"
+# section of docs/RUNBOOK.md.
+demo-up:
+	$(DEMO_COMPOSE) up -d
+
+# Same stack with Grafana's login back on, for the owner over an SSH tunnel. The
+# demo overlay stays in the file list, so the loopback binds hold; only the auth
+# switches change. Anonymous access is off for the length of the session, so the
+# public URL stops serving until `make demo-up` puts it back.
+demo-admin:
+	$(DEMO_COMPOSE) -f infra/docker-compose.admin.yml up -d
+
+# The exposure check, on the host. Every line must read 127.0.0.1; none may read
+# 0.0.0.0. This is necessary and not sufficient: the gate that counts is run from
+# a client outside the host (docs/RUNBOOK.md).
+demo-ports:
+	@docker ps --filter "name=releaseplane-" --format '{{.Names}}\t{{.Ports}}'

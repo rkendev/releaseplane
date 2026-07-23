@@ -6,10 +6,13 @@ recording, and none is needed. The commands below drive the local stack, and the
 results they reference come from two recorded baseline runs (see `docs/EVALUATION.md`).
 
 A live read-only dashboard sits alongside this recording (ADR 0009): Grafana and Jaeger,
-public through a reverse proxy, showing the same v1-blocked and v2-passed contrast from
-one prior population run. It is the clickable companion, not a replacement. This script
-still carries the argument, because the dashboard shows the outcome and the script shows
-why the outcome matters. Nothing on the public surface can write state or call a
+public through a reverse proxy, carrying real numbers from one prior population run. It
+is the clickable companion, not a replacement. What it shows is the measured pass rate
+per release, tier, and metric, plotted against the gate threshold, so the v1 series sits
+under the line on Tier-2 and the v2 series sits on it. The gate decision itself is not a
+metric; a visitor reads the rates and the threshold, and this script supplies the 409 and
+the reason string. That is the division of labour: the dashboard shows the numbers, the
+script shows why they mattered. Nothing on the public surface can write state or call a
 provider; `docs/SECURITY.md` has the boundary and `docs/RUNBOOK.md` has the bring-up.
 
 ## The headline moment

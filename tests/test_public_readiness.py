@@ -21,6 +21,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 BRAND_GUARD = REPO_ROOT / "tools" / "brand_guard.py"
 BASE_COMPOSE = REPO_ROOT / "infra" / "docker-compose.yml"
 DEMO_COMPOSE = REPO_ROOT / "infra" / "docker-compose.demo.yml"
+ADMIN_COMPOSE = REPO_ROOT / "infra" / "docker-compose.admin.yml"
+CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
 
 def _is_ignored(relpath: str) -> bool:
@@ -162,6 +164,13 @@ class _TaggedList(list[Any]):
     tag: str = ""
 
 
+class _TaggedStr(str):
+    """The same, for a tagged scalar. `ports: !reset null` is a scalar node, and
+    the tag is the part that matters."""
+
+    tag: str = ""
+
+
 class _ComposeLoader(yaml.SafeLoader):
     """Compose's merge tags (`!override`, `!reset`) are not standard YAML, so a
     plain safe_load raises on them."""
@@ -174,7 +183,9 @@ def _keep_tag(loader: yaml.SafeLoader, suffix: str, node: yaml.Node) -> Any:
         return seq
     if isinstance(node, yaml.MappingNode):
         return loader.construct_mapping(node, deep=True)
-    return loader.construct_scalar(node)
+    scalar = _TaggedStr(loader.construct_scalar(node))
+    scalar.tag = suffix
+    return scalar
 
 
 _ComposeLoader.add_multi_constructor("!", _keep_tag)
@@ -190,21 +201,42 @@ def _services(path: Path) -> dict[str, dict[str, Any]]:
     return dict(parsed.get("services", {}))
 
 
-def _published_ports(path: Path) -> dict[str, tuple[list[str], str]]:
-    """Services declaring `ports:`, mapped to the port strings and the merge tag
+def _bind_address(entry: Any) -> str | None:
+    """The host interface a port entry binds, or None for every interface.
+
+    Short form is a string, `"127.0.0.1:9090:9090"`, where a two-part value like
+    `"9090:9090"` names no interface. Long form is a mapping whose `host_ip` is
+    optional. Both absences mean the same thing and are reported as None rather
+    than as the wildcard address, so the assertion below tests for loopback rather
+    than against a list of ways to be wrong.
+    """
+    if isinstance(entry, dict):
+        host_ip = entry.get("host_ip")
+        return str(host_ip) if host_ip else None
+    parts = str(entry).split(":")
+    return parts[0] if len(parts) >= 3 else None
+
+
+def _published_ports(path: Path) -> dict[str, tuple[list[Any], str]]:
+    """Services declaring `ports:`, mapped to the port entries and the merge tag
     on that node (empty string when untagged).
 
     Keyed on the presence of `ports:`, not on it being non-empty, so a service
-    that publishes nothing at all (`ports: !override []`) reads as covered. That
-    is stricter than a loopback bind, and a guard should not push a maintainer
-    away from the safer option.
+    that publishes nothing at all reads as covered. `!override []` and `!reset`
+    both mean that, and both are stricter than a loopback bind; a guard should not
+    push a maintainer away from the safer option. A non-sequence node (`!reset
+    null`) is normalized to an empty list for the same reason.
     """
-    out: dict[str, tuple[list[str], str]] = {}
+    out: dict[str, tuple[list[Any], str]] = {}
     for name, body in _services(path).items():
         if "ports" not in body:
             continue
         ports = body["ports"]
-        out[name] = ([str(p) for p in ports], getattr(ports, "tag", ""))
+        # A non-sequence node cannot publish anything, so it normalizes to no
+        # entries. Iterating a bare string here would test it character by
+        # character and fail on the safest setting there is.
+        entries = list(ports) if isinstance(ports, list) else []
+        out[name] = (entries, getattr(ports, "tag", ""))
     return out
 
 
@@ -223,28 +255,31 @@ def test_demo_overlay_covers_every_published_service() -> None:
 
 
 @pytest.mark.parametrize("service,entry", sorted(_published_ports(DEMO_COMPOSE).items()))
-def test_demo_overlay_binds_loopback_only(service: str, entry: tuple[list[str], str]) -> None:
+def test_demo_overlay_binds_loopback_only(service: str, entry: tuple[list[Any], str]) -> None:
     ports, _tag = entry
     for port in ports:
-        assert port.startswith("127.0.0.1:"), (
-            f"{service} publishes {port!r} in {DEMO_COMPOSE.name}; the demo overlay "
-            f"must bind every service to 127.0.0.1"
+        bind = _bind_address(port)
+        assert bind == "127.0.0.1", (
+            f"{service} publishes {port!r} in {DEMO_COMPOSE.name}, binding "
+            f"{bind or 'every interface'}; the demo overlay must bind every "
+            f"service to loopback"
         )
 
 
 @pytest.mark.parametrize("service,entry", sorted(_published_ports(DEMO_COMPOSE).items()))
 def test_demo_overlay_replaces_rather_than_appends_ports(
-    service: str, entry: tuple[list[str], str]
+    service: str, entry: tuple[list[Any], str]
 ) -> None:
-    # Without the `!override` tag compose merges the two lists and the base's
-    # 0.0.0.0 entry survives alongside the loopback one, so the tag is the
-    # difference between a closed port and an open one. Asserted per service off
-    # the parsed node, so a stray mention of the tag in a comment cannot stand in
-    # for a real one.
+    # Without a merge tag compose appends to the base list and the base's 0.0.0.0
+    # entry survives alongside the loopback one, so the tag is the difference
+    # between a closed port and an open one. Asserted per service off the parsed
+    # node, so a stray mention of the tag in a comment cannot stand in for a real
+    # one. `!reset` is accepted alongside `!override`: it publishes nothing, which
+    # is stricter still.
     _ports, tag = entry
-    assert tag == "override", (
-        f"{service} in {DEMO_COMPOSE.name} declares ports without `!override`; "
-        f"compose would append to the base list and keep its 0.0.0.0 binding"
+    assert tag in {"override", "reset"}, (
+        f"{service} in {DEMO_COMPOSE.name} declares ports without `!override` or "
+        f"`!reset`; compose would append to the base list and keep its 0.0.0.0 binding"
     )
 
 
@@ -263,21 +298,66 @@ def test_base_compose_does_not_enable_anonymous_grafana() -> None:
 
 def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
     # The proxy forwards the whole Grafana surface, so a login form on it is a
-    # public credential oracle with nothing rate-limiting it. Both authentication
-    # paths stay off for as long as the overlay is what faces the internet.
+    # public credential oracle and nothing rate-limits by source. Both
+    # authentication paths stay off for as long as the overlay is what faces the
+    # internet, and outbound snapshot sharing stays off with them.
     demo_env = _services(DEMO_COMPOSE)["grafana"]["environment"]
     assert demo_env["GF_AUTH_DISABLE_LOGIN_FORM"] == "true"
     assert demo_env["GF_AUTH_BASIC_ENABLED"] == "false"
+    assert demo_env["GF_SNAPSHOTS_EXTERNAL_ENABLED"] == "false"
 
 
-def test_prometheus_exposes_no_mutating_endpoint() -> None:
-    # An anonymous visitor reaches Prometheus through Grafana's datasource proxy,
-    # so neither the admin API nor the lifecycle API may be switched on. Reading
-    # the property rather than the file shape: no `command:` at all is also fine,
-    # since the image default sets neither flag.
-    command = _services(BASE_COMPOSE)["prometheus"].get("command", [])
-    assert not any("web.enable-admin-api" in flag for flag in command)
-    assert not any("web.enable-lifecycle" in flag for flag in command)
+def test_admin_overlay_keeps_the_loopback_binds() -> None:
+    # The admin overlay layers on top of the demo one to reopen the login. It must
+    # never republish a port: a bring-up that drops the demo overlay to administer
+    # Grafana would put all ten services back on 0.0.0.0, which is a far larger
+    # hole than the login it reopens.
+    assert not _published_ports(ADMIN_COMPOSE), (
+        f"{ADMIN_COMPOSE.name} declares ports; it must change only the auth "
+        f"switches and inherit every binding from the demo overlay"
+    )
+    admin_env = _services(ADMIN_COMPOSE)["grafana"]["environment"]
+    assert admin_env["GF_AUTH_ANONYMOUS_ENABLED"] == "false"
+
+
+# An anonymous visitor reaches Prometheus through Grafana's datasource proxy, so
+# no flag that opens a write path may be set. An allowlist rather than a deny list:
+# a flag added later is caught by default instead of needing its own assertion.
+PROMETHEUS_ALLOWED_FLAGS = {
+    "--config.file",
+    "--storage.tsdb.path",
+    "--storage.tsdb.retention.time",
+    "--storage.tsdb.retention.size",
+    "--query.timeout",
+    "--query.max-samples",
+}
+
+
+@pytest.mark.parametrize("compose", [BASE_COMPOSE, DEMO_COMPOSE, ADMIN_COMPOSE])
+def test_prometheus_exposes_no_mutating_endpoint(compose: Path) -> None:
+    # Checked in every file, since `command:` replaces the list wholesale and an
+    # overlay could reintroduce a flag the base does not set. No `command:` at all
+    # is fine: the image default is the config path and the storage path.
+    command = _services(compose).get("prometheus", {}).get("command", [])
+    for flag in command:
+        name = str(flag).split("=", 1)[0]
+        assert name in PROMETHEUS_ALLOWED_FLAGS, (
+            f"{compose.name} passes {name} to Prometheus, which is not on the "
+            f"read-only allowlist; the datasource proxy is publicly reachable"
+        )
+
+
+def test_ci_postgres_matches_the_dev_stack_digest() -> None:
+    # CI claims parity with the dev stack by pinning the same Postgres digest, and
+    # nothing enforced that. Now that Dependabot moves the compose pins, the two
+    # would drift on the first bump: the docker-compose updater does not touch a
+    # workflow's `services.image`, so the bump has to carry this by hand.
+    compose_image = _services(BASE_COMPOSE)["postgres"]["image"]
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert compose_image in workflow, (
+        f"the CI postgres service does not pin {compose_image}; the workflow says "
+        f"it matches the dev stack, so a compose bump has to move both"
+    )
 
 
 def test_working_tree_is_brand_clean() -> None:

@@ -1,9 +1,12 @@
 # ADR 0009: The public demo is a live read-only observability surface
 
 Date: 2026-07-23
-Status: Accepted. Reverses D-DEMO-ENDPOINT (recorded-only) from Phase 6.
+Status: Accepted
 
 ## Context
+
+This reverses the recorded-only demo decision the Phase 0 council locked on
+2026-06-23.
 
 Phase 0 locked the demo as a recording against the local stack, and `docs/SCOPE.md`
 put a hosted public demo URL out of scope for v1. The reasoning was specific and
@@ -15,7 +18,8 @@ That reasoning was about a public **write** path. It was applied to the whole id
 a hosted URL, which is broader than the risk it describes. After the RUNBOOK
 walkthrough ran end to end and the stack proved demo-ready, the question came back:
 the eval gate blocking v1 and passing v2 is the project's headline, and a reader who
-can click it is in a different position from one who watches a recording of it.
+can click through the measured rates behind it is in a different position from one
+who watches a recording of them.
 
 The observability plane already holds that story in a form with no write path.
 Grafana reads Prometheus. Jaeger reads spans. Neither can create a release, promote
