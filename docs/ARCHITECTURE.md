@@ -83,7 +83,10 @@ and call:
   (pre-call), then schema validity and arithmetic consistency on the output
   (post-call). The arithmetic check imports the same neutral predicate the eval
   scorer uses (ADR 0004, ADR 0006). A failure emits a `policy_event` and sets
-  `policy_status` (`passed` / `monitored` / `failed`, by the bundle severity mode).
+  `policy_status` (`passed` / `monitored` / `failed`, by the bundle severity mode; a
+  bundle that configures no check reports `not_applied`, distinct from `passed`, and the
+  span carries `policy.checks_applied` so a no-op bundle is visible rather than reading as
+  a clean pass).
   v1 never transforms the output: the object is identical between monitor and
   enforce, only the metadata differs.
 

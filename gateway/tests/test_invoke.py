@@ -344,12 +344,25 @@ def _invoke_with(resolver: _FakeResolver, variables: dict[str, Any]) -> dict[str
     return response.json()
 
 
-def test_policies_pass_when_no_checks_configured() -> None:
+def test_no_checks_configured_is_not_applied_not_passed() -> None:
+    # An empty rules_json runs no check. The status must be not_applied, not
+    # passed, so a stale or empty bundle cannot masquerade as a clean pass, and
+    # policy_checks_applied must be 0 so the no-op is visible in the metadata.
     resolver = _FakeResolver(resolved=ResolvedRelease.model_validate(RESOLVED_PAYLOAD))
     body = _invoke_with(resolver, {"invoice_pdf_text": "x"})
-    assert body["metadata"]["policy_status"] == "passed"
+    assert body["metadata"]["policy_status"] == "not_applied"
+    assert body["metadata"]["policy_checks_applied"] == 0
     assert body["metadata"]["policy_outcomes"] == []
     assert resolver.emitted == []
+
+
+def test_checks_applied_counts_configured_checks() -> None:
+    # Two configured checks means policy_checks_applied is 2 regardless of outcome.
+    resolver = _FakeResolver(
+        resolved=_resolved_with({"checks": ["schema_validity", "arithmetic_consistency"]})
+    )
+    body = _invoke_with(resolver, {"invoice_pdf_text": "x"})
+    assert body["metadata"]["policy_checks_applied"] == 2
 
 
 def test_arithmetic_failure_emits_event_and_monitors() -> None:

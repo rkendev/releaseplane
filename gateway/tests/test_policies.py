@@ -83,3 +83,10 @@ def test_policy_status_passed_monitored_failed() -> None:
     assert policy_status(ok, "enforce") == "passed"
     assert policy_status(bad, "monitor") == "monitored"
     assert policy_status(bad, "enforce") == "failed"
+
+
+def test_policy_status_no_outcomes_is_not_applied() -> None:
+    # No check ran: distinct from passed in both modes, so an empty bundle cannot
+    # report a vacuous pass via all([]).
+    assert policy_status([], "enforce") == "not_applied"
+    assert policy_status([], "monitor") == "not_applied"

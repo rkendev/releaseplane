@@ -7,6 +7,13 @@ container. It is idempotent: re-running registers nothing new (the bundle is
 matched by name+version, the prompt by name, each version by its (prompt,
 version) pair), so a clean DB and an already-seeded DB converge to the same state.
 
+Idempotent only when the stored bundle matches the seed. A bundle is immutable
+once created, so the seeder never rewrites a stored row; if an existing
+(name, version) bundle differs in content from the seed (the case a persisted
+volume hits when its row predates a change to the bundle's rules), the seeder
+raises SeedDriftError rather than silently leaving the drifted row in place,
+where the policy engine would run whatever stale checks it carries.
+
 The httpx client is injected (the host script passes httpx.Client; tests pass a
 TestClient), so this module needs httpx only for typing.
 """
@@ -67,10 +74,50 @@ def _load_prompt(path: Path) -> dict[str, Any]:
     return cast(dict[str, Any], yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
+class SeedDriftError(RuntimeError):
+    """A stored bundle with the seed's (name, version) differs from the seed content.
+
+    Raised instead of silently skipping, because a bundle is immutable and the
+    seeder will not rewrite it. The operator resolves it by wiping the dev volume
+    and re-seeding, or by bumping the seed bundle's version so the new content
+    lands as a new row.
+    """
+
+
+def _bundle_drift(stored: dict[str, Any], bundle: dict[str, Any]) -> list[str]:
+    """Fields where a stored bundle differs from the seed. Empty means a match.
+
+    `bundle` is the in-repo seed constant, so its keys are trusted and read
+    directly; `stored` is an API payload, so it is read defensively with `.get`.
+    """
+    drift: list[str] = []
+    if stored.get("severity_mode") != bundle["severity_mode"]:
+        stored_mode = stored.get("severity_mode")
+        drift.append(f"severity_mode: stored {stored_mode!r} != seed {bundle['severity_mode']!r}")
+    if stored.get("rules_json") != bundle["rules_json"]:
+        drift.append("rules_json differs from the seed")
+    return drift
+
+
 def seed_policy_bundle(client: httpx.Client, bundle: dict[str, Any]) -> bool:
-    """Register a policy bundle if absent (matched by name+version). Returns created."""
+    """Register a policy bundle if absent (matched by name+version). Returns created.
+
+    Raises SeedDriftError if a stored bundle with the same (name, version) differs
+    in content from the seed, rather than skipping it silently.
+    """
     existing = client.get("/policy-bundles").json()
-    if any(b["name"] == bundle["name"] and b["version"] == bundle["version"] for b in existing):
+    stored = next(
+        (b for b in existing if b["name"] == bundle["name"] and b["version"] == bundle["version"]),
+        None,
+    )
+    if stored is not None:
+        drift = _bundle_drift(stored, bundle)
+        if drift:
+            raise SeedDriftError(
+                f"policy bundle {bundle['name']}@{bundle['version']} exists but differs from "
+                f"the seed ({'; '.join(drift)}). A bundle is immutable; wipe the volume and "
+                f"re-seed, or bump the seed bundle's version."
+            )
         return False
     response = client.post(
         "/policy-bundles",

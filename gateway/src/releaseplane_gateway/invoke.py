@@ -71,6 +71,10 @@ class InvokeMetadata(BaseModel):
     routing_rule_id: str | None
     request_id: uuid.UUID
     policy_status: str
+    # How many checks the bundle actually applied. Zero means no check ran, which
+    # pairs with a not_applied status so a stale or empty bundle is visible rather
+    # than reading as a clean pass.
+    policy_checks_applied: int
     policy_outcomes: list[dict[str, Any]]
     input_tokens: int
     output_tokens: int
@@ -297,6 +301,7 @@ async def _invoke(
         )
         status_label = policy_status(outcomes, resolved.policy_bundle.severity_mode)
         span.set_attribute("releaseplane.policy.status", status_label)
+        span.set_attribute("releaseplane.policy.checks_applied", len(outcomes))
         span.set_attribute("releaseplane.policy.failures", sum(1 for o in outcomes if not o.passed))
 
     ROUTING_DECISIONS.labels(
@@ -323,6 +328,7 @@ async def _invoke(
             routing_rule_id=str(matched.id) if matched is not None else None,
             request_id=request_id,
             policy_status=status_label,
+            policy_checks_applied=len(outcomes),
             policy_outcomes=[outcome.as_dict() for outcome in outcomes],
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,

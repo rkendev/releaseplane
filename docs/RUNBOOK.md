@@ -201,12 +201,15 @@ provisioned at boot).
         - "5433:5432"
   ```
 
-- **`/invoke` returns `"policy_status": "passed"` with an empty `policy_outcomes`, on
-  output that should have failed.** The seeded policy bundle is stale. `seed_policy_bundle`
-  matches on `(name, version)` and skips a bundle that already exists, so a persisted
-  volume holding an `invoice_v1@v1` row from before the policy engine landed keeps its
-  old `rules_json` forever. An empty `rules_json` means no check runs and everything
-  passes. Confirm with:
+- **The seed aborts with `SeedDriftError`, or `/invoke` reports
+  `"policy_status": "not_applied"`.** Both point at the same stale bundle. A policy
+  bundle is immutable and `seed_policy_bundle` matches on `(name, version)`, so a
+  persisted volume holding an `invoice_v1@v1` row from before the policy engine landed
+  keeps its old `rules_json`. The seeder now refuses to skip silently: if the stored
+  bundle differs from the seed (an empty `rules_json`, a `warn` severity), it raises
+  `SeedDriftError` naming the difference. And because an empty bundle runs no check, the
+  gateway reports `not_applied` with `policy_checks_applied: 0` rather than a vacuous
+  `passed`, so the no-op is visible instead of looking clean. Confirm with:
 
   ```bash
   curl -s http://localhost:8001/policy-bundles \
@@ -214,12 +217,11 @@ provisioned at boot).
   ```
 
   A current bundle has `severity_mode: "enforce"` and a `rules_json.checks` list of
-  `prompt_injection`, `schema_validity`, `arithmetic_consistency`. If yours is empty,
-  the row predates the engine. Fix by wiping the volume
+  `prompt_injection`, `schema_validity`, `arithmetic_consistency`. If yours is empty, the
+  row predates the engine. Fix by wiping the volume
   (`docker compose -f infra/docker-compose.yml down -v`, then bring up, migrate, and
-  re-seed), which is the safe option on a dev stack. Worth checking before a demo: the
-  stack looks healthy either way, and the failure mode is that the policy beat quietly
-  shows nothing.
+  re-seed), which is the safe option on a dev stack. The seed then lands the current
+  bundle on the clean volume.
 
 - **Grafana exits with `permission denied` on a secret.** The secret file is not
   readable by the Grafana user. Fix: re-run `make secrets` (it writes `0644`).

@@ -29,6 +29,10 @@ MONITOR = "monitor"
 STATUS_PASSED = "passed"
 STATUS_MONITORED = "monitored"
 STATUS_FAILED = "failed"
+# No check ran, so there is nothing to pass or fail. Kept distinct from passed so
+# a bundle with no configured checks (for example a stale row whose rules_json
+# predates the engine) cannot masquerade as a clean pass.
+STATUS_NOT_APPLIED = "not_applied"
 
 
 class PolicyBundleRules(BaseModel):
@@ -66,7 +70,14 @@ def post_call_outcomes(
 
 
 def policy_status(outcomes: list[PolicyOutcome], severity_mode: str) -> str:
-    """Derive the request's policy status from the outcomes and the severity mode."""
+    """Derive the request's policy status from the outcomes and the severity mode.
+
+    An empty outcome list means no check ran, which is reported as not_applied
+    rather than passed: `all([])` is vacuously true, so without this guard a
+    bundle with no configured checks would report a clean pass on any output.
+    """
+    if not outcomes:
+        return STATUS_NOT_APPLIED
     if all(outcome.passed for outcome in outcomes):
         return STATUS_PASSED
     return STATUS_FAILED if severity_mode == ENFORCE else STATUS_MONITORED
