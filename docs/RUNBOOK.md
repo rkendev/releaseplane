@@ -136,6 +136,41 @@ curl -s $GW/invoke -H 'content-type: application/json' \
   -d '{"prompt_name": "invoice-extraction", "variables": {"invoice_pdf_text": "..."}}' | jq .
 ```
 
+## CLI and curl side by side
+
+The `releaseplane` console CLI (from the `sdk` package) wraps the read and promote calls
+above, so the demo can show one clean line instead of a curl-and-jq pipe. Each verb is a
+single control-plane call and nothing more; curl stays the honest fallback. Point the CLI
+at the control plane with `--url` (accepted before or after the verb) or the
+`RELEASEPLANE_URL` environment variable.
+
+| Operation | CLI | curl |
+| --- | --- | --- |
+| List prompts | `releaseplane prompts list` | `curl -s $CP/prompts` |
+| List releases | `releaseplane releases list` | `curl -s $CP/releases` |
+| Promote a release | `releaseplane releases promote <id>` | `curl -s -X POST $CP/releases/<id>/promote` |
+| Latest eval run | `releaseplane eval status --release-id <id>` | `curl -s "$CP/eval-runs?release_id=<id>"` |
+
+```bash
+export RELEASEPLANE_URL=$CP
+releaseplane releases list
+releaseplane eval status --release-id $RELEASE_ID
+releaseplane releases promote $RELEASE_ID   # prints the 409 reason on one line, exits 1
+```
+
+`releases promote` is the one to show: on a blocked release it prints the gate reason
+(`promotion blocked: tier 1 schema_validity 0% < 100%; ...`) on a single line and exits
+non-zero, rather than dumping a JSON body. The CLI reports no gate verdict of its own; the
+thresholds live in the control plane, and the CLI only surfaces what the API returns.
+
+Executing an eval run is not a CLI verb: use the evals harness directly, which is the
+`run` step in the walkthrough above:
+
+```bash
+CONTROL_PLANE_URL=$CP GATEWAY_URL=$GW \
+  uv run python -m releaseplane_evals.cli run --release-id $RELEASE_ID --dataset-id $DATASET_ID
+```
+
 ## Service URLs
 
 | Service | URL | Notes |

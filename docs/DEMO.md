@@ -1,70 +1,158 @@
 # Demo Script (3-5 minutes)
 
-The demo is the acceptance criterion for v1. Every other artifact is in support of this script landing.
+The demo is the acceptance criterion for v1. Every other artifact is in support of this
+script landing. It runs on recorded numbers: no live provider call happens during the
+recording, and none is needed. The commands below drive the local stack, and the eval
+results they reference come from two recorded baseline runs (see `docs/EVALUATION.md`).
 
 ## The headline moment
 
-A prompt change produces a new release. The eval runner scores it against the 30-case golden dataset. The arithmetic gate catches a hallucinated total on Tier-2 case #14: model returns `total = 1,257.50` while `subtotal (1,150.00) + tax (97.50) = 1,247.50`. JSON Schema passed. Promotion is blocked with a 409 before the wrong total can post to the ledger.
+A prompt change produces a new release. The eval runner scored it against the 30-case
+golden dataset. The arithmetic gate catches a hallucinated total on Tier-2 case #14: the
+model returns `total = 1,257.50` while `subtotal (1,150.00) + tax (97.50) = 1,247.50`.
+JSON Schema passed. Promotion is blocked with a 409 before the wrong total can post to
+the ledger.
 
 This is the only moment that has to land. Everything else is framing.
 
-## The second beat - the control plane caught its own substrate change
+## Builder's note (do not voice over; keep honest for the panel)
 
-> "The same discipline that catches a bad prompt caught a change to the model underneath the project. The design substrate moved from one model version to the next between sessions. Instead of building on top of it, the control-plane process flagged the change, re-ran the six locked design verdicts against the new substrate, kept all six (one with a noted assumption), and shipped the audit trail before the next line of code."
-
-Show: `substrate_change_2026-06-23.md` (the verdict table and the decision) and the CHANGELOG entry. Point out that production stays pinned to `claude-sonnet-4-6`, so the inference layer never moved; what moved was the model reasoning about the design.
-
-Builder's note (do not voice over, keep honest for the panel): the eval harness and the gate are built (Phase 4). The arithmetic-gate catch is real and is a committed regression test (`test_eval_gate_regression`), proven by injecting the bad case_14 output through a scripted provider, so it runs offline. CI itself makes zero live API calls; it runs the harness on DummyProvider. The real per-tier baseline comes from one deliberate gated live run (`evals/scripts/run_eval_live.py`) against the pinned Sonnet 4.6. The substrate-change re-validation in the second beat is still a documented council pass, not an automated eval re-run.
+The eval harness and the gate are built and are the load-bearing parts of this demo. The
+headline `total = 1,257.50` catch is a committed regression test
+(`test_eval_gate_regression`): it injects that output through a scripted provider and
+runs offline, so CI proves the gate on every push while making zero live API calls. The
+per-tier numbers in the v1-to-v2 beat below come from two deliberate, gated live runs
+against the pinned Sonnet 4.6, recorded once and replayed here. The recording itself runs
+the dummy-pinned stack, so nothing spends while the camera rolls.
 
 ## Script
 
 ### 0:00 - 0:45: The problem
 
-> "Accounts Payable runs LLM extraction on incoming invoices and posts the structured JSON to the ERP. Schema validity is 100 percent. The model returns a total of 1,257.50. The real total is 1,247.50. The schema check has no opinion on whether the arithmetic adds up. The wrong number posts. No one notices until the vendor reconciles next month."
+> "Accounts Payable runs LLM extraction on incoming invoices and posts the structured
+> JSON to the ERP. Schema validity is 100 percent. The model returns a total of 1,257.50.
+> The real total is 1,247.50. The schema check has no opinion on whether the arithmetic
+> adds up. The wrong number posts. No one notices until the vendor reconciles next month."
 
-Show: a sample invoice (PDF render). Show: the extracted JSON. Highlight the wrong `total`. Note: schema is valid.
+Show: a sample invoice (PDF render). Show: the extracted JSON. Highlight the wrong
+`total`. Note: schema is valid.
 
 ### 0:45 - 1:45: The control plane
 
-> "ReleasePlane treats every prompt change like a code change. The prompt is versioned. The model is pinned to an exact version string. The release is an immutable bundle of (prompt version, model config, policy bundle)."
+> "ReleasePlane treats every prompt change like a code change. The prompt is versioned
+> with a checksum. The model is pinned to an exact version string. The release is an
+> immutable bundle of prompt version, model config, and policy bundle, and every request
+> the gateway serves carries the release id that resolved it."
 
-Show: `releaseplane releases list`. Active release is `invoice-extraction@v1.0.3`. Show the git diff of a PR proposing `v1.0.4` (one wording change in the extraction prompt). Show: PR triggers CI.
+Show: `releaseplane releases list` and `releaseplane prompts list`. Show the git diff of a
+PR proposing a new prompt version (one wording change in the extraction prompt). Show: the
+PR triggers CI.
 
-### 1:45 - 3:00: The gate
+### 1:45 - 3:15: The gate blocked its own v1
 
-> "The eval runner scores the release against the 30-case golden dataset. Three deterministic metrics: JSON Schema validity, arithmetic consistency, checksum exact-match. Tier-1 and Tier-2 cases gate promotion. Tier-3 is monitored."
+This is the strongest beat, because the failure is real, not scripted.
 
-Show: the run summary (or the ReleasePlane Eval dashboard). Schema: 30/30 pass. Checksum: 30/30 pass. Arithmetic: 29/30 pass. Case #14 fails. Click into the failing `eval_results` row.
+> "The first time this project ran its own eval against the live model, the gate blocked
+> it. Not a synthetic case: the model represented a volume discount on case #14 as a
+> negative line item, which broke schema validity and arithmetic consistency at once.
+> Tier 2 came in at 90 percent on both. The gate refused the promotion."
 
-> "Subtotal plus tax equals 1,247.50. The model returned 1,257.50. The arithmetic check caught what the schema could not."
+Show: the recorded v1 run (`da53ec97`). Tier 1: 100 / 100 / 100. Tier 2: 90 / 90 / 100.
+Tier 3: 100 / 100 / 100. Click into the failing case.
 
-Show: the promotion API rejecting `POST /releases/{id}/promote` with a 409 `PromotionBlocked` and the failing-case payload.
+> "The fix was a prompt change, not a threshold change. A discount paragraph told the
+> model to net discounts into the positive line items so they sum to the subtotal. That
+> is `prompt_v2`. The re-run passed every metric in every tier, zero of ninety rows
+> failing, and the same gate that blocked v1 let v2 through."
 
-### 3:00 - 4:00: The audit
+Show: the `prompt_v1` to `prompt_v2` diff (the added discount paragraph). Show: the
+recorded v2 run (`ef6a27d8`), 100 across the board. Then show the block and the pass at
+the API, using the CLI:
 
-> "Every request the gateway processed during the eval run is traced. Jaeger has the full timeline; the per-case input and output are stored as JSONB on the eval results. The release ID is on every span."
+```
+releaseplane releases promote <v1-release-id>
+# promotion blocked: tier 2 schema_validity 90% < 100%; tier 2 arithmetic_consistency 90% < 100%   (exit 1)
 
-Show: Jaeger trace for the failed case. Show: the failing case's `eval_results` row with the model output in `notes`. Point out the `releaseplane.release_id` attribute. Note the model version pin and the prompt version checksum. (Full payload archival to MinIO is reserved for Phase 5.)
+releaseplane releases promote <v2-release-id>
+# <id>  promoted to candidate
+```
 
-### 4:00 - 5:00: The story
+The block prints the reason on one line and exits non-zero. The v1 detail names both
+failing metrics, because the negative line item broke schema and arithmetic at once; that
+is the live failure mode, distinct from the headline regression test, which injects a
+wrong total and so trips arithmetic alone. Either way the gate is legible from the
+terminal.
 
-> "This is the control plane that ensures an Accounts Payable LLM pipeline cannot silently ship a broken prompt, cannot have a silent model retirement go undetected, and cannot post a hallucinated invoice total to the ledger. Every release goes through a version gate, an arithmetic-consistency eval, and an audit log before it reaches production."
+### 3:15 - 4:00: Routing and measured cost
 
-Show: the README's opening paragraph (which is this paragraph). Show: the architecture diagram from `docs/ARCHITECTURE.md`.
+> "Serving every invoice on the strongest model is the expensive default. ReleasePlane
+> routes per request on the input, and it measures what each provider costs. One call on a
+> cheaper provider cost a fraction of a cent."
 
-Close on the four-plane diagram.
+Show: the recorded cost figures. One `gpt-4o-mini` call on case_03 cost $0.000178, which
+blends to about $0.18 per 1,000 invoices, against about $8.67 per 1,000 for the pinned
+Sonnet 4.6. Show: the routing rule that diverts a request to the cheaper model config, and
+the `serving_provider` on the span.
+
+> "The point is not that the cheap model is good enough. The point is that the question is
+> answerable. The golden set prices the tradeoff instead of leaving it to opinion, and the
+> gate makes sure whatever config a release is bound to has passed on that release's data."
+
+### 4:00 - 4:40: The audit
+
+> "Every request the gateway processed during a run is traced. Jaeger has the timeline;
+> the per-case input and output are stored as JSONB on the eval results. The release id is
+> on every span, alongside the routing decision and the policy status."
+
+Show: the Jaeger trace for a case. Show: the failing case's `eval_results` row with the
+model output in its notes. Point out the `releaseplane.release_id` attribute, the model
+version pin, and the prompt version checksum. Full payload archival to object storage is a
+documented deferral, not part of v1.
+
+### 4:40 - 5:00: The story
+
+> "This is the control plane that keeps an Accounts Payable LLM pipeline from silently
+> shipping a broken prompt, from missing a model retirement, and from posting a
+> hallucinated invoice total to the ledger. Every release goes through a version gate, an
+> arithmetic-consistency eval, and an audit log before it reaches production. That same
+> insistence on catching silent change carried into the design process: when the model
+> reasoning about this design shifted between sessions, the design review re-ran its
+> locked verdicts against the new substrate and recorded the audit trail before the next
+> line of code."
+
+Show: the README opening paragraph. Show: the four-plane overview and the request-flow
+diagram in `docs/ARCHITECTURE.md`.
+
+Close on the four planes: control, execution, ingestion and eval, observability.
 
 ## What not to do in the demo
 
 - Do not show the admin UI as a feature. It is a single page; opening it loses time.
-- Do not explain the eval-axes triage (objective + component + quantitative) in prose. It is in `EVALUATION.md` for the panel; mention only if asked.
-- Do not start with the architecture diagram. Start with the wrong total. The diagram is the closer, not the opener.
-- Do not talk about multi-provider routing. It is reserved (Phase 5) and showing it without it being implemented reads as overselling.
+- Do not explain the eval-axes triage (objective + component + quantitative) in prose. It
+  is in `EVALUATION.md` for the panel; mention only if asked.
+- Do not start with the architecture diagram. Start with the wrong total. The diagram is
+  the closer, not the opener.
+- Do not claim a live eval is running. The numbers are recorded and labeled as such; the
+  stack on camera is dummy-pinned.
+
+## Before you record
+
+The policy engine runs nothing if the seeded bundle is stale, and a stale stack still
+looks healthy. Confirm the `invoice_v1` bundle is current before recording:
+
+```
+curl -s $CP/policy-bundles | jq '.[] | select(.name=="invoice_v1") | {severity_mode, rules_json}'
+```
+
+It must show `severity_mode: "enforce"` and a `rules_json.checks` list. If `rules_json` is
+empty, the row predates the policy engine; see the stale-bundle failure mode in
+`docs/RUNBOOK.md`. Bring the stack up from source, migrate, and re-seed per the RUNBOOK so
+the demo shows current routes and a current bundle.
 
 ## Recording notes
 
 - Resolution: 1920x1080 minimum.
 - Cursor highlighting on.
-- Two terminals visible (one for git / CI, one for `releaseplane` CLI).
-- Browser windows: Grafana, Jaeger, the admin page, the rejected promotion API response.
+- Two terminals visible: one for git and CI, one for the `releaseplane` CLI.
+- Browser windows: Grafana, Jaeger, and the rejected promotion at the API.
 - Voice-over scripted from this file. No improvisation on the headline moment.
