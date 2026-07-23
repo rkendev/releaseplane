@@ -5,10 +5,14 @@ script landing. It runs on recorded numbers: no live provider call happens durin
 recording, and none is needed. The commands below drive the local stack, and the eval
 results they reference come from two recorded baseline runs (see `docs/EVALUATION.md`).
 
-A live read-only dashboard sits alongside this recording (ADR 0009): Grafana and Jaeger,
-public through a reverse proxy, carrying real numbers from one prior population run. It
-is the clickable companion, not a replacement. What it shows is the measured pass rate
-per release, tier, and metric, plotted against the gate threshold, so the v1 series sits
+A live read-only dashboard sits alongside this recording (ADR 0009), at
+[releaseplane.85-215-55-99.sslip.io](https://releaseplane.85-215-55-99.sslip.io) with
+traces at
+[releaseplane-traces.85-215-55-99.sslip.io](https://releaseplane-traces.85-215-55-99.sslip.io):
+Grafana and Jaeger, public through a reverse proxy, carrying real numbers from one prior
+population run. It is the clickable companion, not a replacement. What it shows is the
+measured pass rate per release, tier, and metric, plotted against the gate threshold, so
+the v1 series sits
 under the line on Tier-2 and the v2 series sits on it. The gate decision itself is not a
 metric; a visitor reads the rates and the threshold, and this script supplies the 409 and
 the reason string. That is the division of labour: the dashboard shows the numbers, the

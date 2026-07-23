@@ -4,6 +4,8 @@
 
 That moment is the project. ReleasePlane is the control plane that sits between an Accounts Payable LLM extraction pipeline and a production ERP. Releases move forward through a lifecycle (draft, then candidate, then active) behind a regression gate (schema validity, arithmetic consistency, checksum exact-match) that a release cannot bypass. Entering active archives the prior active release for that prompt, under a prompt-scoped advisory lock so two concurrent promotions cannot both win.
 
+**Live demo:** [releaseplane.85-215-55-99.sslip.io](https://releaseplane.85-215-55-99.sslip.io) opens on the eval dashboard, where the v1 prompt sits below the gate threshold on Tier-2 and the v2 prompt clears it, from one real run. Traces at [releaseplane-traces.85-215-55-99.sslip.io](https://releaseplane-traces.85-215-55-99.sslip.io). Both are read-only and anonymous: nothing reachable there writes state or calls a provider (ADR 0009). The recorded walkthrough tells the story; this lets you click through the numbers behind it.
+
 ## What this demonstrates
 
 - **Versioned artifacts.** Prompt versions, model configs, and policy bundles are first-class rows. Each prompt version carries a sha256 over its prompts and schemas, and each model config names an exact model string rather than a floating alias, so what served a given request is recoverable rather than inferred. A release is an immutable bundle of the three, and every request carries the `release_id` that resolved it.
@@ -36,7 +38,7 @@ Seeding registers the prompts, not a release. Walking one through the gate takes
 
 Worth knowing before you run it: the dev stack pins the gateway to `DummyProvider`, which returns a canned object rather than calling a model. An eval run on that stack therefore fails schema validity on every case and the gate blocks promotion. That is the zero-spend way to watch the gate do its job. Passing rates need a real provider key, which is a deliberate, operator-run step, never an automatic one.
 
-Grafana is at `http://localhost:3000`, Jaeger at `http://localhost:16686`.
+Grafana is at `http://localhost:3000`, Jaeger at `http://localhost:16686`. The same two surfaces are public and read-only at the live demo links above; `docs/RUNBOOK.md` has the demo overlay that binds everything else to loopback and the exposure boundary behind it.
 
 ## Layout
 
@@ -59,7 +61,7 @@ End-to-end design and implementation: architecture, data model, eval harness, pr
 
 Complete through the v1 engine scope. The control plane carries the registry and the release lifecycle with the eval gate enforced by default. The gateway resolves, routes, applies policy, and calls a provider through the registry. The eval harness scores a release over the golden set and persists per-case results. Observability is wired end to end.
 
-Outstanding against `docs/SCOPE.md`: the single-page admin view with a promote button, the SDK client surface, and the demo recording.
+Outstanding against `docs/SCOPE.md`: the single-page admin view with a promote button, the SDK client surface, and the demo recording. The live read-only demo surface (ADR 0009) is up at the links above.
 
 `docs/SCOPE.md` holds the explicit out-of-scope list. `docs/ARCHITECTURE.md` is the as-built design and data model. Both are authoritative; the ADRs in `docs/ADR/` record the decisions behind the current shape.
 

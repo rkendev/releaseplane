@@ -104,3 +104,10 @@ the live dashboard is the clickable companion to it.
   that limit rather than claiming the surface is restart-proof.
 - `docs/SCOPE.md` and `docs/SECURITY.md` are updated to match. This ADR is the record
   that the earlier decision was made, held for a reason, and then changed.
+- The recruiter-facing docs cite the live URL as a real, clickable link rather than
+  the `<demo-host>` placeholder the config keeps, since a placeholder advertises
+  nothing. That literal host lives in three tracked files (`README.md`,
+  `docs/SCOPE.md`, `docs/DEMO.md`); if the demo moves or is retired, all three change
+  together, and there is no placeholder indirection to catch a stale one. The config
+  (`infra/caddy/releaseplane.Caddyfile`, `infra/.env`) keeps the placeholder, so the
+  running surface follows the host without an edit.

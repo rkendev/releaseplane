@@ -13,7 +13,7 @@ Locked 2026-06-23 by the Phase 0 council. Items here are binding for v1.
 - Policies at v1: JSON-schema validation (output), arithmetic-consistency rule (output), prompt-injection regex filter (input).
 - Schema language: Pydantic v2 models as the single source of truth. JSON Schema is auto-generated.
 - Observability: OTel traces with `releaseplane.release_id` on every span; Grafana for request rate, p95 latency, error rate; Jaeger for trace inspection.
-- Deployment: Docker Compose locally. The demo ships as a recording against the local stack, plus a live read-only observability surface: Grafana and Jaeger behind a reverse proxy, showing real data from one prior population run (ADR 0009). Nothing publicly reachable can write state or call a provider.
+- Deployment: Docker Compose locally. The demo ships as a recording against the local stack, plus a live read-only observability surface at `releaseplane.85-215-55-99.sslip.io`: Grafana and Jaeger behind a reverse proxy, showing real data from one prior population run (ADR 0009). Nothing publicly reachable can write state or call a provider.
 - Multi-provider routing: a restricted JSON predicate DSL, one rule set per use case, matched deterministically first-by-priority (ADR 0005). Latency- and cost-aware routing stay out.
 
 ## Out of scope (v1)
