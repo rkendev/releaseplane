@@ -1,0 +1,79 @@
+# Opt-in overlay for the public read-only demo (ADR 0009).
+#
+# Active only when explicitly composed in. The committed base stays
+# secure-by-default: it never enables anonymous Grafana and never binds to
+# loopback, so a plain bring-up is unchanged by this file.
+#
+#   docker compose -p releaseplane \
+#     -f infra/docker-compose.yml \
+#     -f infra/docker-compose.override.yml \
+#     -f infra/docker-compose.demo.yml up -d
+#
+# Two things happen here.
+#
+# 1. Every published port moves to 127.0.0.1. On a host where Docker publishes on
+#    0.0.0.0, the raw ports are reachable on the public IP directly, bypassing the
+#    reverse proxy. A host firewall is not a second layer for this: Docker's DNAT
+#    rules sit in the nat table ahead of the filter rules ufw manages, so unless
+#    the host wires a DOCKER-USER rule, ufw does not gate a published container
+#    port at all. The loopback bind is the control that actually holds.
+#
+# 2. Grafana serves anonymous Viewer, so a visitor reads the dashboards without a
+#    login and cannot edit, create, or delete anything. The admin login still
+#    works for the owner: the base's secret-file password mount is untouched.
+#
+# Grafana and Jaeger are on loopback too. They are public only through the reverse
+# proxy vhosts (see the "Read-only demo" section of docs/RUNBOOK.md).
+#
+# `!override` replaces the port list rather than appending to it. Without it,
+# compose merges the lists and the original 0.0.0.0 binding survives.
+
+services:
+  postgres:
+    ports: !override
+      - "127.0.0.1:15432:5432"
+
+  minio:
+    ports: !override
+      - "127.0.0.1:9100:9000"
+      - "127.0.0.1:9101:9001"
+
+  otel-collector:
+    ports: !override
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
+  jaeger:
+    # The base also publishes a bare "4317", which Docker maps to a random host
+    # port on 0.0.0.0. Nothing outside the compose network uses it (the collector
+    # reaches jaeger:4317 over the network), so the replacement list drops it.
+    ports: !override
+      - "127.0.0.1:16686:16686"
+
+  prometheus:
+    ports: !override
+      - "127.0.0.1:9090:9090"
+
+  grafana:
+    ports: !override
+      - "127.0.0.1:3000:3000"
+    environment:
+      # Anonymous read-only access. Viewer cannot edit, and sign-up is off, so
+      # there is no path from the public URL to a write.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_HIDE_VERSION: "true"
+      # The proxy terminates TLS and forwards to loopback, so Grafana needs the
+      # public origin to build correct redirects and share links.
+      GF_SERVER_ROOT_URL: https://releaseplane.85-215-55-99.sslip.io/
+      # Land a visitor on the eval story rather than an empty home page.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/provisioning/dashboards/eval.json
+
+  control-plane:
+    ports: !override
+      - "127.0.0.1:18001:8000"
+
+  gateway:
+    ports: !override
+      - "127.0.0.1:8002:8000"

@@ -64,8 +64,17 @@ services:
   prometheus:
     image: prom/prometheus:v3.0.1@sha256:565ee86501224ebbb98fc10b332fa54440b100469924003359edf49cbce374bd
     container_name: releaseplane-prometheus
+    # The image defaults to the first two flags only; naming any command replaces
+    # the whole list, so both are restated. Retention is long because the eval
+    # metrics are emitted once per run: the samples in the TSDB are what keeps a
+    # dashboard readable long after the run that produced them.
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=2y
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
     ports:
       - "9090:9090"
 
@@ -146,6 +155,7 @@ volumes:
   postgres_data:
   minio_data:
   grafana_data:
+  prometheus_data:
 
 secrets:
   postgres_password:

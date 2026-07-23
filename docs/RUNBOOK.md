@@ -186,6 +186,114 @@ Traces flow from the services to the collector and on to Jaeger. Metrics are
 scraped by Prometheus and shown in Grafana (the Prometheus datasource is
 provisioned at boot).
 
+## Read-only demo
+
+The public demo is Grafana and Jaeger only, served through a reverse proxy, showing
+data from one prior population run. Nothing a visitor can reach writes state or calls
+a provider. The decision and its boundary are recorded in ADR 0009.
+
+### Bring up with the demo overlay
+
+`infra/docker-compose.demo.yml` is opt-in. It is inert unless named on the command
+line, so a normal bring-up is unaffected by it.
+
+```bash
+docker compose -p releaseplane \
+  -f infra/docker-compose.yml \
+  -f infra/docker-compose.override.yml \
+  -f infra/docker-compose.demo.yml up -d
+make migrate PGPORT=15432
+```
+
+Drop the `override` file on a host that does not remap ports. Check what the merged
+files actually render before starting anything:
+
+```bash
+docker compose -p releaseplane -f infra/docker-compose.yml \
+  -f infra/docker-compose.override.yml -f infra/docker-compose.demo.yml config
+```
+
+### What is exposed
+
+| Surface | Public | Reached how |
+| --- | --- | --- |
+| Grafana (anonymous Viewer) | yes | proxy vhost to `127.0.0.1:3000` |
+| Jaeger trace search | yes | proxy vhost to `127.0.0.1:16686` |
+| control-plane API | no | loopback only |
+| gateway `/invoke` | no | loopback only |
+| Postgres, MinIO, Prometheus, OTel collector | no | loopback only |
+
+Anonymous Viewer can read every provisioned dashboard and can issue read-only PromQL
+through Grafana's datasource proxy. It cannot edit, create, delete, or sign up, and
+Postgres is not a Grafana datasource, so no invoice data is reachable that way. The
+admin login keeps working for the owner: the demo overlay does not touch the base's
+secret-file password mount.
+
+### Reverse proxy
+
+This host fronts with Caddy, which issues and renews the certificates on its own.
+Append to `/etc/caddy/Caddyfile`, matching the other demos on the box:
+
+```
+# >>> releaseplane demo (managed) >>>
+releaseplane.85-215-55-99.sslip.io {
+	reverse_proxy 127.0.0.1:3000
+	encode gzip
+}
+
+releaseplane-traces.85-215-55-99.sslip.io {
+	reverse_proxy 127.0.0.1:16686
+	encode gzip
+}
+# <<< releaseplane demo (managed) <<<
+```
+
+```bash
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy
+```
+
+Two hostnames rather than one host with a `/traces` path: Jaeger needs
+`QUERY_BASE_PATH` to serve its UI under a subpath, and a second vhost costs nothing
+here.
+
+### The reachability gate
+
+The loopback bind is the control that holds, not the host firewall. Docker's DNAT
+rules sit in the nat table ahead of the filter rules ufw manages, so unless the host
+wires a `DOCKER-USER` rule, a published container port is reachable on the public IP
+whatever ufw says about it. Confirm which way it renders:
+
+```bash
+docker compose -p releaseplane -f infra/docker-compose.yml \
+  -f infra/docker-compose.override.yml -f infra/docker-compose.demo.yml ps
+```
+
+Every port must read `127.0.0.1:`; none may read `0.0.0.0:`. Then check from a client
+that is not this host (a laptop, not an SSH session into the box), because a
+`localhost` probe passes either way:
+
+```
+Test-NetConnection <public-ip> -Port 18001    # and 8002, 15432, 9090, 3000, 16686, 4317, 9100
+```
+
+Every one must fail. If any raw port answers, the demo does not go live until it is
+closed. The two demo URLs are the only things that may answer.
+
+### Why the dashboards default to a wide time range
+
+The eval and gateway dashboards open on `now-1y`. The eval metrics are emitted once
+per run, so a narrow window shows an empty panel the day after a population run.
+Prometheus keeps a `prometheus_data` volume with two-year retention to match, so the
+samples survive a Prometheus or host restart.
+
+One limit, worth knowing before restarting anything: the control-plane counters and
+gauges live in that process, not in the database. After a control-plane restart the
+samples already in the TSDB still render, so the timeseries panels keep the story,
+but the run counters restart at zero. Jaeger all-in-one holds traces in memory, so
+its container has to stay up for the trace links to resolve. Keep the stack running
+between demos rather than cycling it.
+
 ## Common failure modes
 
 - **Port already in use** (for example `bind host port 0.0.0.0:5432: address
