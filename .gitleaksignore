@@ -3,14 +3,23 @@
 # file, or line, including a new occurrence of the same pattern. This narrows the
 # scan; it never disables a rule, relaxes entropy, or excludes a path.
 #
-# docs/RUNBOOK.md carried a verification probe written as
-#   curl -u "credentials-supplied-on-stdin" ...
-# The curl-auth-user rule reads user:value after -u as a credential pair. The
-# value is a shell command substitution naming a path, not a password: the file it
-# reads is gitignored and has never been committed, which the .gitignore-coverage
-# test in tests/test_public_readiness.py asserts. The probe was rewritten to pass
-# the password on stdin (curl -K -) so it stays out of the process list on a
-# shared host, so the line is gone from the tip and this commit diff is the only
-# place it exists. The pre-flip history rewrite that docs/SECURITY.md already
-# requires for the brand tokens removes it for good, and this line goes with it.
+# The entry below is a documentation example in docs/RUNBOOK.md: a verification
+# probe that passed curl's user-and-password argument a shell command substitution
+# reading one of the paths under infra/secrets/. The curl-auth-user rule reads
+# whatever follows that flag as a credential pair, so it matched the substitution
+# rather than a password. Nothing was disclosed: the file named there is gitignored
+# and has never been committed, which the .gitignore-coverage test in
+# tests/test_public_readiness.py asserts.
+#
+# The probe was rewritten to pass the password on stdin instead, so it stays out of
+# the process list on a shared host, which means the line is gone from the tip and
+# this commit diff is the only place it survives. The pre-flip history rewrite that
+# docs/SECURITY.md already requires for the brand tokens removes it for good, and
+# this line goes with it.
+#
+# This comment describes the pattern rather than quoting it, deliberately. Writing
+# the literal here would be a fresh occurrence in a new commit, which the scan
+# flags in turn, and answering that with a second fingerprint is a loop that ends
+# with an ignore file longer than the finding. tests/test_public_readiness.py
+# builds the brand token at runtime for the same reason.
 b03578dd04d5e98e90052e5337dccdb14f403993:docs/RUNBOOK.md:curl-auth-user:422
