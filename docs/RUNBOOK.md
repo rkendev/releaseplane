@@ -278,36 +278,42 @@ move the digest forward.
 
 ### Reverse proxy
 
-The demo host fronts with Caddy, which issues and renews the certificates on its own.
-Append to `/etc/caddy/Caddyfile`:
-
-```
-# >>> releaseplane demo (managed) >>>
-releaseplane.<demo-host> {
-	reverse_proxy 127.0.0.1:3000
-	encode gzip
-}
-
-releaseplane-traces.<demo-host> {
-	reverse_proxy 127.0.0.1:16686
-	encode gzip
-}
-# <<< releaseplane demo (managed) <<<
-```
-
-Substitute the real hostname, the same one `DEMO_ROOT_URL` carries in `infra/.env`.
-Each block proxies a whole service rather than a path allowlist, which is why
-Grafana's own authentication is switched off in the overlay: everything Grafana
-serves is public.
+The demo host fronts with Caddy, which issues and renews the certificates on its own,
+so there is no certbot step. The vhosts live in `infra/caddy/releaseplane.Caddyfile`
+as a fragment to append to the host's `/etc/caddy/Caddyfile`, with the real hostname
+substituted for `<demo-host>` (the same one `DEMO_ROOT_URL` carries in `infra/.env`):
 
 ```bash
-caddy validate --config /etc/caddy/Caddyfile
-systemctl reload caddy
+sed 's/<demo-host>/YOUR.HOST.NAME/' infra/caddy/releaseplane.Caddyfile \
+  | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy
 ```
 
-Two hostnames rather than one host with a `/traces` path: Jaeger needs
-`QUERY_BASE_PATH` to serve its UI under a subpath, and a second vhost costs nothing
-here.
+Back the file up first if the host serves anything else from it; the fragment's
+delimiter comments make the block findable and removable later without disturbing
+the rest. `caddy validate` is the gate: a Caddyfile that does not parse takes down
+every vhost on the host, not just these two, so never reload without it.
+
+Each block proxies a whole service rather than a path allowlist, which is why
+Grafana's own authentication is switched off in the overlay: everything Grafana
+serves is public. Two hostnames rather than one host with a `/traces` path, because
+Jaeger needs `QUERY_BASE_PATH` to serve its UI under a subpath.
+
+Confirm both names resolve before reloading. These are `sslip.io`-style wildcard
+names on this host, so they resolve without a DNS record, but Caddy cannot issue a
+certificate for a name that does not resolve to it:
+
+```bash
+getent hosts releaseplane.YOUR.HOST.NAME
+```
+
+After the reload, the first request to each name takes a few seconds while Caddy
+obtains the certificate. Check that it did:
+
+```bash
+sudo journalctl -u caddy --since "2 min ago" | grep -i "certificate obtained"
+```
 
 ### The reachability gate
 
@@ -336,6 +342,29 @@ Test-NetConnection <public-ip> -Port 8001    # and 8002, 5432, 9090, 3000,
 Substitute the remapped numbers on a host that sets them. Every one must fail. If any
 raw port answers, the demo does not go live until it is closed. The two demo URLs are
 the only things that may answer.
+
+Two vantages beat one, and neither may be this host. Anything that resolves the
+public IP from elsewhere works as the second: a request from outside returns a
+connection error for a closed port and a protocol-level error for an open one
+carrying a non-matching service, and the two are easy to tell apart. The
+distinction that matters is refused versus answered, not what the answer said.
+
+Then confirm the two surfaces that are supposed to answer, and that the boundary
+holds through the proxy rather than only on loopback:
+
+```bash
+U=https://releaseplane.<demo-host>
+curl -s -o /dev/null -w '%{http_code}\n' $U/api/search              # 200, anonymous
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -d '{}' \
+  -H 'Content-Type: application/json' $U/api/dashboards/db          # 403
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -d '{"user":"admin","password":"x"}' \
+  -H 'Content-Type: application/json' $U/login                      # 400, no login form
+curl -s -o /dev/null -w '%{http_code}\n' -u admin:<real-password> $U/api/user  # 401
+```
+
+A 200 on the first and a 4xx on the rest is the whole public contract. The last one
+matters most: it proves the real password buys nothing through the public URL, so
+there is no credential to guess there.
 
 ### Why the dashboards default to a wide time range
 

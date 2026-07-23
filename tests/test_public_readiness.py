@@ -23,6 +23,7 @@ BASE_COMPOSE = REPO_ROOT / "infra" / "docker-compose.yml"
 DEMO_COMPOSE = REPO_ROOT / "infra" / "docker-compose.demo.yml"
 ADMIN_COMPOSE = REPO_ROOT / "infra" / "docker-compose.admin.yml"
 CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+CADDY_VHOSTS = REPO_ROOT / "infra" / "caddy" / "releaseplane.Caddyfile"
 
 
 def _is_ignored(relpath: str) -> bool:
@@ -365,6 +366,41 @@ def test_prometheus_exposes_no_mutating_endpoint(compose: Path) -> None:
             f"{compose.name} passes {name} to Prometheus, which is not on the "
             f"read-only allowlist; the datasource proxy is publicly reachable"
         )
+
+
+def test_caddy_vhosts_reach_only_the_two_public_services() -> None:
+    """The vhost file is the public attack surface expressed in one place.
+
+    Every `reverse_proxy` upstream must be loopback (the demo overlay binds
+    nothing else, so a non-loopback upstream is a mistake or a hole), and the set
+    of ports it reaches must be exactly Grafana and Jaeger. A block added later
+    pointing at the control plane or the gateway would put a write path on the
+    internet, which is the one thing this design rules out.
+    """
+    text = CADDY_VHOSTS.read_text(encoding="utf-8")
+    upstreams = [
+        line.split("reverse_proxy", 1)[1].strip()
+        for line in text.splitlines()
+        if line.strip().startswith("reverse_proxy")
+    ]
+    assert upstreams, f"{CADDY_VHOSTS.name} declares no reverse_proxy"
+    for upstream in upstreams:
+        assert upstream.startswith(
+            "127.0.0.1:"
+        ), f"{CADDY_VHOSTS.name} proxies {upstream!r}, which is not loopback"
+    reached = {u.split(":", 1)[1] for u in upstreams}
+    assert reached == {"3000", "16686"}, (
+        f"{CADDY_VHOSTS.name} reaches ports {sorted(reached)}; the public surface "
+        f"is Grafana (3000) and Jaeger (16686) and nothing else"
+    )
+
+
+def test_caddy_vhosts_carry_no_real_hostname() -> None:
+    # The file is tracked and the repo goes public, so the host it runs on stays a
+    # placeholder here and lives in the gitignored infra/.env, same as the ports.
+    text = CADDY_VHOSTS.read_text(encoding="utf-8")
+    assert "<demo-host>" in text
+    assert "sslip.io" not in text
 
 
 def test_demo_make_targets_include_the_overlay() -> None:

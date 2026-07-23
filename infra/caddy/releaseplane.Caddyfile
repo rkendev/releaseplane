@@ -1,0 +1,43 @@
+# Reverse-proxy vhosts for the public read-only demo (ADR 0009).
+#
+# This is a fragment, not a whole Caddyfile. Append it to the host's
+# /etc/caddy/Caddyfile, substituting the real hostname for <demo-host>, then:
+#
+#   caddy validate --config /etc/caddy/Caddyfile
+#   systemctl reload caddy
+#
+# The delimiter comments make the block findable and removable by a later edit
+# without disturbing whatever else the host serves.
+#
+# Caddy obtains and renews the certificates itself, so there is no certbot step.
+# No secrets belong in this file.
+#
+# Both upstreams are on 127.0.0.1 because the demo overlay binds every service to
+# loopback. That is the load-bearing part: the proxy is the only way in, and it
+# reaches only these two ports. Nothing here routes to the control plane, the
+# gateway, Postgres, MinIO, Prometheus, or the collector, so no public request can
+# write state or cause a provider call.
+#
+# Two hostnames rather than one host with a /traces path: Jaeger needs
+# QUERY_BASE_PATH set to serve its UI under a subpath, and a second vhost costs
+# nothing on a host that already issues certificates per name.
+#
+# Note what is deliberately absent. There is no method allowlist: Grafana's own
+# frontend POSTs to /api/ds/query to render a dashboard panel, so rejecting
+# non-GET at the proxy would break the demo it is protecting. Read-only is
+# enforced in Grafana instead (anonymous Viewer, both authentication paths off),
+# and docs/SECURITY.md records the probes that confirmed it. There is also no rate
+# limit, which standard Caddy does not carry; the residual risk is compute on an
+# idle box rather than data exposure, and docs/SECURITY.md says so.
+
+# >>> releaseplane demo (managed) >>>
+releaseplane.<demo-host> {
+	reverse_proxy 127.0.0.1:3000
+	encode gzip
+}
+
+releaseplane-traces.<demo-host> {
+	reverse_proxy 127.0.0.1:16686
+	encode gzip
+}
+# <<< releaseplane demo (managed) <<<
