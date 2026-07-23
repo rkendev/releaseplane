@@ -81,14 +81,15 @@ every run so neither can regress silently.
   the repository or the build host is rotated, including the one key used for the single
   gated cost probe.
 
-  `.gitleaksignore` narrows that scan and nothing else. Each line is an exact
-  `commit:file:rule:line` fingerprint for a finding reviewed and shown to carry no
-  secret, with the reasoning recorded beside it; the rule still fails on any other
-  commit, file, or line, and a new occurrence of the same pattern still fails. That was
-  verified by planting one. No entry may disable a rule, relax entropy, or exclude a
-  path, because those suppress findings that do not exist yet. The single entry today
-  is a documentation example whose `-u` argument reads a gitignored path through a shell
-  substitution, and it goes away with the pre-flip history rewrite below.
+  That scan is not narrowed. The repository carries no `.gitleaksignore`. The two
+  findings that once needed one were `curl-auth-user` matches on a documentation probe
+  whose `-u` argument read a gitignored path through a shell substitution, and the
+  pre-flip rewrite below took that text out of the commits that held it. A suppression
+  file may come back only for a finding reviewed and shown to carry no secret, written
+  as an exact `commit:file:rule:line` fingerprint with the reasoning beside it, so the
+  rule still fails on any other commit, file, or line and a new occurrence of the same
+  pattern still fails. No entry may disable a rule, relax entropy, or exclude a path,
+  because those suppress findings that do not exist yet.
 - **No cross-project or internal reference leaks into new work.** A brand-guard check
   runs over every tracked file, in pre-commit and again as a standalone CI step, and
   fails on the cross-project brand token or the external Knowledge Base path that the
@@ -96,13 +97,18 @@ every run so neither can regress silently.
   allowed; the guard targets only those two tokens. This covers the working tree and
   every new commit, so the neutralization cannot regress.
 
-Those two tokens still exist in early commit history, from before the as-built pass, so
-the working-tree guard is not sufficient on its own for the public flip. Two pre-flip
-gates cover history: the gitleaks `secret-scan` job (secrets), and a manual brand-history
-scan the owner runs, `python tools/brand_guard.py --history`, which fails while any early
-commit still carries a token. The flip to public is gated on scrubbing that history (a
-history rewrite, then a force-push) so a clone of the public repo carries neither token
-in any commit. Until that scrub, `--history` reports the exact commits and paths to fix.
+Both tokens once sat in early commit history, from before the as-built pass, where the
+working-tree guard could not see them. A pre-flip rewrite (`git filter-repo
+--replace-text`) replaced them in every commit that carried them, leaving the tip tree
+byte-identical, so a clone of the public repository carries neither token in any commit.
+The rewritten history went to a freshly created repository rather than over the old one
+with a force-push: GitHub keeps the `refs/pull/*` refs of past pull requests, a force-push
+does not touch them, and every one of them held the old commits in its ancestry.
+
+Two gates keep that property from regressing, both in the `secret-scan` job, which checks
+out the full history: gitleaks for secrets, and `python3 tools/brand_guard.py --history`,
+which fails if any commit carries either token again and reports the exact commits and
+paths.
 
 ## Public demo surface
 

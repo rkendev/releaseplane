@@ -20,10 +20,10 @@ Two modes:
   - default: `brand_guard.py <path> ...` scans the given files (the pre-commit and
     CI use), covering the working tree.
   - `brand_guard.py --history` scans every commit reachable from all refs for the
-    tokens. The working-tree scan cannot see history, and the tokens do sit in
-    early commits, so this is the pre-flip check the owner runs before making the
-    repo public. It is deliberately not a CI gate: it would fail on the current
-    history until that history is scrubbed.
+    tokens. The working-tree scan cannot see history, and the tokens did sit in
+    early commits until the pre-flip rewrite replaced them. It runs in the CI
+    secret-scan job, which checks out the full history, so the scrubbed history
+    cannot regress.
 
 Exit non-zero on the first offending file (or historical location); print the
 location + token.

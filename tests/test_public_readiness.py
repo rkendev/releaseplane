@@ -106,8 +106,8 @@ def test_brand_guard_flags_a_token_in_the_path(tmp_path: Path) -> None:
 
 
 def _init_repo_with(tmp_path: Path, filename: str, content: str) -> Path:
-    """A throwaway git repo with one commit, so --history is tested independently
-    of this repo's actual history (which stays dirty until the pre-flip scrub)."""
+    """A throwaway git repo with one commit, so --history is tested on a known
+    dirty history rather than on this repo's own, which the pre-flip scrub cleaned."""
     repo = tmp_path / "repo"
     repo.mkdir()
     run = lambda *args: subprocess.run(  # noqa: E731

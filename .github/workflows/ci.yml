@@ -130,3 +130,10 @@ jobs:
           docker run --rm -v "${{ github.workspace }}:/repo" \
             ghcr.io/gitleaks/gitleaks@sha256:0e99e8821643ea5b235718642b93bb32486af9c8162c8b8731f7cbdc951a7f46 \
             detect --source /repo --redact --no-banner
+
+      # The brand guard in the build job scans the working tree, which cannot see
+      # history. This job already has the full history checked out, so the same
+      # script runs here in --history mode and keeps the pre-flip scrub from
+      # regressing. Standard library only, so no toolchain setup is needed.
+      - name: Brand guard (full history)
+        run: python3 tools/brand_guard.py --history
