@@ -111,7 +111,7 @@ original reasons (`docs/SCOPE.md`): it would need a per-request rate limit, a da
 cap with a counter, and an environment kill switch first.
 
 The proxy forwards the whole Grafana surface, not a chosen subset of paths, so anything
-Grafana serves is public. That makes Grafana's own authentication part of the boundary
+Grafana serves is public apart from the five paths refused below. That makes Grafana's own authentication part of the boundary
 rather than something behind it. Left on, it would put a working credential oracle on the
 internet: `POST /login` answers 200 on the right password and 401 on the wrong one.
 Grafana OSS does lock a user out after five failed attempts
@@ -160,13 +160,23 @@ and `/api/admin/settings` return 403; `/api/snapshots` returns 401; `/api/playli
 returns 403 on a well-formed body. External snapshot sharing is switched off, so nothing
 can post dashboard data to a third-party host.
 
-One anonymous write did exist and is closed at the proxy. `POST /api/short-urls`
-returned 200 and wrote a row that `/goto/<uid>` then resolved, because Grafana grants
-short-URL creation to any signed-in user and anonymous access makes every visitor one.
-The write is small, but it is unbounded and reachable without credentials, and a demo
-needs no share-link button, so the vhost refuses that one path with a 405. The rest of
-Grafana passes through, including the `POST /api/ds/query` that renders a panel, which
-is why there is no blanket method rule: it would break the dashboards it was protecting.
+The Viewer role covers the endpoints that check a role. It does not cover the ones that
+only check whether a request is signed in, because Grafana counts an anonymous visitor
+as signed in. Four were reachable, each measured rather than assumed, and all four are
+refused at the reverse proxy (`infra/caddy/releaseplane.Caddyfile`) with a 405:
+
+| Path | Was | Why it matters |
+| --- | --- | --- |
+| `POST /api/short-urls` | 200 | Wrote a row that `/goto/<uid>` then resolved. Small, but unbounded and uncredentialed. The trailing-slash form answered too, and Caddy's path matcher is exact, so both are listed. |
+| `GET /api/gnet/*` | 200 | Grafana's proxy to grafana.com. A visitor could make this box originate outbound requests. |
+| `POST /api/frontend-metrics` | 200 | Anonymous data written into the instance. |
+| `POST /api/live/publish` | 400 | Reached body validation rather than an authorization refusal, so authorization was not the thing stopping it. |
+
+Read-only on this surface is therefore two mechanisms, Grafana's roles and the vhost's
+refusals, and the second is part of the boundary rather than plumbing in front of it.
+That is also why there is no blanket method rule: `POST /api/ds/query` is what renders a
+panel, so refusing non-GET would break the dashboards it was protecting. The rest of
+Grafana passes through, including the `/api/live/ws` the frontend opens.
 
 Two operational notes carry real weight here.
 

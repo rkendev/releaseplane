@@ -241,9 +241,15 @@ the public origin Grafana builds its redirect and share links from. See
 | Postgres, MinIO, Prometheus, OTel collector | no | loopback only |
 
 Anonymous Viewer can read every provisioned dashboard and can issue read-only PromQL
-through Grafana's datasource proxy. It cannot edit, create, delete, or sign up, and
-Postgres is not a Grafana datasource, so no invoice data is reachable that way.
-External snapshot sharing is off, so nothing posts dashboard data outbound.
+through Grafana's datasource proxy. Postgres is not a Grafana datasource, so no
+invoice data is reachable that way, and external snapshot sharing is off, so nothing
+posts dashboard data outbound.
+
+The Viewer role blocks the write endpoints that check a role, but Grafana counts an
+anonymous visitor as signed in, so endpoints gated only on that were reachable. Five
+are refused at the proxy instead (see the reverse-proxy section below and
+`docs/SECURITY.md`). Read-only on this surface is the two together, Grafana's roles
+and the vhost's refusals, not Grafana's roles alone.
 
 The overlay also turns Grafana's authentication off, both the login form and basic
 auth. The proxy forwards the whole service, so a login form on it is a public
@@ -297,33 +303,59 @@ itself fails safe, leaving the previous config serving, but the bad text stays o
 disk and takes everything down at the next restart or reboot, possibly days later.
 
 ```bash
-HOST=your.host.name            # no angle brackets; the real name
+cd /path/to/releaseplane        # the fragment path below is repo-relative
+HOST=your.host.name             # no angle brackets; the real name
+LIVE=/etc/caddy/Caddyfile
+CAND=$(mktemp)                  # not a predictable name in a shared /tmp
 
-# Refuse to double-append. Caddy rejects a duplicated site address, and by the
-# time validate says so the live file already carries both copies.
-grep -q "releaseplane demo (managed)" /etc/caddy/Caddyfile \
-  && { echo "block already present; edit it in place instead"; exit 1; }
-
-sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%F-%H%M)"
-cp /etc/caddy/Caddyfile /tmp/Caddyfile.candidate
-# The leading blank line also guards against a live file with no trailing newline,
-# which would otherwise glue the fragment onto the last existing line.
-{ echo; sed "s/<demo-host>/$HOST/" infra/caddy/releaseplane.Caddyfile; } \
-  >> /tmp/Caddyfile.candidate
-
-sudo caddy validate --config /tmp/Caddyfile.candidate --adapter caddyfile \
-  && sudo install -m 0644 /tmp/Caddyfile.candidate /etc/caddy/Caddyfile \
-  && sudo systemctl reload caddy
+if grep -q "releaseplane demo (managed)" "$LIVE"; then
+  echo "block already present; edit it in place rather than appending"
+else
+  # Every step is chained. A candidate that is missing the live file's contents
+  # is still valid Caddy, so an unguarded build step could install two site
+  # blocks over the whole host config and drop every other site on it.
+  cp "$LIVE" "$CAND" \
+    && { echo; sed "s/<demo-host>/$HOST/" infra/caddy/releaseplane.Caddyfile; } >> "$CAND" \
+    && grep -q "releaseplane.$HOST" "$CAND" \
+    && [ "$(wc -c < "$CAND")" -gt "$(wc -c < "$LIVE")" ] \
+    && sudo caddy validate --config "$CAND" --adapter caddyfile \
+    && sudo caddy reload --config "$CAND" --adapter caddyfile --force \
+    && sudo cp -a "$LIVE" "$LIVE.bak.$(date +%F-%H%M)" \
+    && sudo install -m "$(stat -c %a "$LIVE")" -g "$(stat -c %G "$LIVE")" "$CAND" "$LIVE" \
+    && echo "live and installed"
+fi
 ```
 
-The `&&` chain is the point: nothing reaches `/etc/caddy/Caddyfile` unless validate
-passed. The fragment's delimiter comments make the block findable and removable
-later without disturbing the rest.
+Four things in that chain are there for a reason.
 
-`caddy validate` catches a parse error but not every load error. A config can adapt
-cleanly and still fail to apply, which is why the reload is the last link in the
-chain rather than a separate step, and why a failed reload needs the file repaired
-even though the site stays up on the previous config. Watch it land:
+The two checks between the build and the validate are the ones that matter most. A
+Caddyfile containing only these two site blocks parses perfectly, so `validate`
+cannot tell a correct candidate from one where the `cp` failed and the fragment
+landed alone. `grep` proves the substitution happened, which catches a wrong working
+directory that would otherwise produce a candidate identical to the live file and
+reload as a silent no-op; the size comparison proves the live content survived.
+
+`reload` runs before `install`, not after. A config can adapt cleanly and still fail
+to load, which is how the first version of these vhosts got as far as the live file
+with a log path the running process could not open. Applying the candidate first
+means only a config that actually loaded gets persisted, and a failure leaves both
+the running server and the file on disk as they were.
+
+`--adapter caddyfile` is needed on both commands because the candidate is not named
+`Caddyfile`, and `reload` otherwise tries to parse it as JSON.
+
+`install` reads the live file's current mode and group rather than forcing `0644`.
+The merged file may carry a neighbouring site's credentials, and this procedure has
+no business widening its permissions.
+
+The leading `echo` guards against a live file with no trailing newline, which would
+otherwise glue the fragment onto the last existing line. The fragment's delimiter
+comments make the block findable and removable later without disturbing the rest.
+The double-append check is a fast, readable failure rather than a safety property:
+under this procedure a duplicate would be caught by `validate` on the candidate and
+could never reach the live file.
+
+Watch it land:
 
 ```bash
 sudo journalctl -u caddy --since "2 min ago" | grep -iE "error|certificate obtained"
@@ -335,10 +367,15 @@ header on the way in.
 
 Each block proxies a whole service rather than a path allowlist, which is why
 Grafana's own authentication is switched off in the overlay: everything Grafana
-serves is public. The one exception is `POST /api/short-urls`, refused at the proxy,
-because Grafana grants short-URL creation to any signed-in user and anonymous access
-makes every visitor one. Two hostnames rather than one host with a `/traces` path,
-because Jaeger needs `QUERY_BASE_PATH` to serve its UI under a subpath.
+serves is public. Five paths are the exception, refused at the proxy with a 405,
+because Grafana treats an anonymous visitor as a signed-in user and every endpoint
+gated on being signed in rather than on a role is therefore open: `/api/short-urls`
+and its trailing-slash form (writes a row a `/goto/` link resolves), `/api/gnet/*`
+(Grafana's proxy to grafana.com, which lets a visitor make the box originate
+outbound requests), `/api/frontend-metrics`, and `/api/live/publish`. The fragment
+records what each one returned before it was closed. Two hostnames rather than one
+host with a `/traces` path, because Jaeger needs `QUERY_BASE_PATH` to serve its UI
+under a subpath.
 
 Confirm both names resolve before reloading. Wildcard-DNS names of the
 `<label>.<ip-with-dashes>.sslip.io` form resolve without a record, but Caddy cannot
@@ -375,12 +412,18 @@ network) are fine, since nothing on the host reaches them. Then check from a cli
 that is not this host (a laptop, not an SSH session into the box), because a
 `localhost` probe passes either way. Every published port goes in the list:
 
-Take the list from `make demo-ports` rather than from a fixed set of numbers, so a
+Take the list from the merged config rather than from a fixed set of numbers, so a
 host that remaps is covered without editing anything:
 
 ```bash
-make demo-ports | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | sort -un
+make demo-config | grep -E '^\s+published:' | grep -oE '[0-9]+' | sort -un
 ```
+
+The config is the right source here, not `make demo-ports`. Two reasons: filtering
+`ps` output on `127.0.0.1` would drop the one case this gate exists to catch, and
+`ps` collapses adjacent ports into a range (`4317-4318->4317-4318`), so a naive
+extraction silently loses one end of it. The config lists every published port
+individually and states the intent the probe is checking.
 
 Every one of those must fail from outside:
 
@@ -422,8 +465,11 @@ done
 curl -s -o /dev/null -w 'login    %{http_code}\n' -X POST \
   -H 'Content-Type: application/json' \
   -d '{"user":"admin","password":"x"}' "$G/login"                      # 400, no form
-curl -s -o /dev/null -w 'basic    %{http_code}\n' \
-  -u "credentials-supplied-on-stdin" "$G/api/user"  # 401
+
+# The real password goes in on stdin, not the command line, so it stays out of the
+# process list and the shell history on a host other people use.
+printf 'user = "admin:%s"\n' "$(cat infra/secrets/grafana_admin_password)" \
+  | curl -s -o /dev/null -w 'basic    %{http_code}\n' -K - "$G/api/user"  # 401
 ```
 
 A 200 on the first three and a 4xx on the rest is the whole public contract. Two of

@@ -36,14 +36,29 @@
 releaseplane.<demo-host> {
 	encode gzip
 
-	# Grafana grants short-URL creation to any signed-in user, and with anonymous
-	# access on, the anonymous visitor is one: POST /api/short-urls returns 200 and
-	# writes a row that /goto/<uid> then resolves. It is a small write, but it is a
-	# write, and an unbounded one on a public surface. A demo needs no share-link
-	# button, so the one path is refused here. Everything else Grafana serves is
-	# passed through, including the POST that renders a panel.
-	@shortener path /api/short-urls
-	respond @shortener "read-only demo" 405
+	# Grafana treats an anonymous visitor as a signed-in user, so every endpoint
+	# gated on "signed in" rather than on a role is open to the internet here. Four
+	# of them were reachable and are refused, each measured against the pinned
+	# image rather than assumed:
+	#
+	#   /api/short-urls      POST returned 200 and wrote a row that /goto/<uid>
+	#                        resolved. A small write, but unbounded and
+	#                        uncredentialed. Both the bare and trailing-slash forms
+	#                        answered, and Caddy's path matcher is exact, so both
+	#                        are listed. A demo needs no share-link button.
+	#   /api/gnet/*          Grafana's proxy to grafana.com. GET returned 200, which
+	#                        means a visitor can make this box originate outbound
+	#                        requests. Nothing here installs plugins or browses the
+	#                        dashboard gallery.
+	#   /api/frontend-metrics  POST returned 200: anonymous data into the instance.
+	#   /api/live/publish    POST reached body validation rather than an
+	#                        authorization refusal. Nothing here publishes on a
+	#                        live channel.
+	#
+	# Everything else Grafana serves is passed through, including the POST that
+	# renders a panel and the /api/live/ws the frontend opens.
+	@refused path /api/short-urls /api/short-urls/* /api/gnet/* /api/frontend-metrics /api/live/publish
+	respond @refused "read-only demo" 405
 
 	# Without this the public surface produces no access log at all: Caddy v2 logs
 	# per site and sets no global default, so the accepted compute-exhaustion risk

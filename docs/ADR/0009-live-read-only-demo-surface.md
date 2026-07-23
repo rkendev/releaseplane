@@ -56,15 +56,24 @@ the live dashboard is the clickable companion to it.
 
 ## Rationale
 
-- The exposed surface has no write path, so the three controls SCOPE named as
-  preconditions (rate limit, spend cap, kill switch) guard a risk that this shape does
-  not create. A live **write** endpoint stays out of scope for exactly the original
+- The exposed surface reaches no application write path, so the three controls SCOPE
+  named as preconditions (rate limit, spend cap, kill switch) guard a risk that this
+  shape does not create. Nothing public can create a release, promote one, or cause a
+  provider call. A live **write** endpoint stays out of scope for exactly the original
   reasons.
-- Anonymous Viewer cannot edit, create, delete, or sign up. It can issue read-only
-  PromQL through Grafana's datasource proxy, which reads counters and rates. Postgres
-  is not a Grafana datasource, so invoice content is not reachable that way. Spans
-  carry ids, model, tokens, cost, and policy counters, not invoice text
-  (`docs/SCOPE.md`, observability line).
+- Anonymous Viewer can read the provisioned dashboards and issue read-only PromQL
+  through Grafana's datasource proxy, which reads counters and rates. Postgres is not
+  a Grafana datasource, so invoice content is not reachable that way. Spans carry ids,
+  model, tokens, cost, and policy counters, not invoice text (`docs/SCOPE.md`,
+  observability line).
+- Read-only is not a property of the Viewer role alone, and saying so would be the
+  easy mistake here. Grafana counts an anonymous visitor as signed in, so endpoints
+  gated on that rather than on a role were reachable: creating a short URL, proxying
+  a request to grafana.com, posting frontend metrics, publishing on a live channel.
+  Each was measured rather than assumed, and the five paths are refused at the
+  reverse proxy. The boundary is Grafana's roles and the vhost's refusals together,
+  which is why `infra/caddy/releaseplane.Caddyfile` is part of it and not merely
+  plumbing in front of it.
 - Turning authentication off on the public instance costs nothing real and removes a
   password-guessing surface that nothing was bounding. The dashboards and the
   datasource are provisioned from files, so there is no runtime administration to

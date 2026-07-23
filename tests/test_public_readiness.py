@@ -9,7 +9,6 @@ any one package.
 
 from __future__ import annotations
 
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -310,10 +309,12 @@ def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
 
 
 def _caddy_upstreams() -> list[str]:
-    """The upstream address of every reverse_proxy in the tracked vhost fragment.
+    """Every upstream address in the tracked vhost fragment.
 
-    Takes the first token after the directive, so the ordinary block form
-    (`reverse_proxy 127.0.0.1:3000 {`) reads the same as the one-line form.
+    Takes all tokens after the directive, stopping at an opening brace, so the
+    block form (`reverse_proxy 127.0.0.1:3000 {`) reads the same as the one-line
+    form and a load-balanced list (`reverse_proxy a:1 b:2`) yields both rather
+    than hiding the second.
     """
     upstreams = []
     for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines():
@@ -322,7 +323,10 @@ def _caddy_upstreams() -> list[str]:
             continue
         for directive in ("reverse_proxy", "forward_auth"):
             if stripped.startswith(f"{directive} "):
-                upstreams.append(stripped.split()[1])
+                for token in stripped.split()[1:]:
+                    if token.startswith("{"):
+                        break
+                    upstreams.append(token)
     return upstreams
 
 
@@ -428,29 +432,69 @@ def test_caddy_vhosts_pull_in_no_other_config() -> None:
         )
 
 
-# A site address is a bare address line opening a block. Everything else in the
-# file is a directive, a comment, or a brace.
-_SITE_ADDRESS = re.compile(r"^([A-Za-z0-9.:<>_-]+)\s*\{$")
+def _caddy_site_lines() -> list[str]:
+    """Every top-level line opening a site block, verbatim.
+
+    Unindented and ending in a brace is what makes a line a site address in this
+    file; everything else is a directive, a comment, or a closing brace. Returned
+    unparsed so the caller checks all of them, including comma-separated or
+    scheme-prefixed forms a stricter pattern would silently skip.
+    """
+    return [
+        line.strip()
+        for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines()
+        if not line.startswith((" ", "\t", "#")) and line.strip().endswith("{")
+    ]
 
 
 def test_caddy_vhosts_carry_no_real_hostname() -> None:
     # The file is tracked and the repo goes public, so the host it runs on stays a
     # placeholder here and lives in the gitignored infra/.env, same as the ports.
-    # Asserted per site address rather than by looking for one known domain, so a
-    # substitution is caught whatever it substitutes in, including a bare IP.
-    addresses = [
-        match.group(1)
-        for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines()
-        if not line.startswith((" ", "\t", "#"))
-        for match in [_SITE_ADDRESS.match(line.strip())]
-        if match
-    ]
-    assert addresses, f"{CADDY_VHOSTS.name} declares no site address"
-    for address in addresses:
-        assert "<demo-host>" in address, (
-            f"{CADDY_VHOSTS.name} serves {address!r}, which names a real host; the "
-            f"tracked copy keeps the <demo-host> placeholder"
+    # Every site line is checked rather than only the ones a pattern recognizes, so
+    # a substitution is caught whatever it substitutes in, including a bare IP or a
+    # second name added after a comma.
+    sites = _caddy_site_lines()
+    assert sites, f"{CADDY_VHOSTS.name} declares no site address"
+    for site in sites:
+        for address in site.removesuffix("{").replace(",", " ").split():
+            assert "<demo-host>" in address, (
+                f"{CADDY_VHOSTS.name} serves {address!r}, which names a real host; "
+                f"the tracked copy keeps the <demo-host> placeholder"
+            )
+
+
+# Paths the vhost must refuse. Grafana counts an anonymous visitor as signed in, so
+# each of these answered before it was closed; docs/SECURITY.md records what each
+# one returned. The trailing-slash form is listed because Caddy's path matcher is
+# exact and Grafana's router accepted both.
+REFUSED_PATHS = (
+    "/api/short-urls",
+    "/api/short-urls/*",
+    "/api/gnet/*",
+    "/api/frontend-metrics",
+    "/api/live/publish",
+)
+
+
+def test_caddy_vhosts_refuse_the_anonymous_write_paths() -> None:
+    text = CADDY_VHOSTS.read_text(encoding="utf-8")
+    matcher = [line for line in text.splitlines() if line.strip().startswith("@refused path ")]
+    assert matcher, f"{CADDY_VHOSTS.name} has no @refused path matcher"
+    declared = matcher[0].split("@refused path ", 1)[1].split()
+    for path in REFUSED_PATHS:
+        assert path in declared, (
+            f"{CADDY_VHOSTS.name} no longer refuses {path}; it is reachable "
+            f"anonymously and docs/SECURITY.md says it is closed"
         )
+    assert "respond @refused" in text
+
+
+def test_caddy_vhosts_log_every_site() -> None:
+    # docs/SECURITY.md accepts a compute-exhaustion risk on the grounds that it is
+    # observable. That holds only while both sites log; Caddy logs per site and
+    # this host sets no global default.
+    text = CADDY_VHOSTS.read_text(encoding="utf-8")
+    assert text.count("log {") == len(_caddy_site_lines())
 
 
 def test_demo_make_targets_include_the_overlay() -> None:
