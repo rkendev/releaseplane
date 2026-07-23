@@ -141,19 +141,32 @@ the vhost's upstream is dead and the public URL answers 502 instead. The owner r
 base, unreachable rather than removed. A guard asserts the admin overlay never binds the
 proxied port.
 
-What an anonymous visitor can do is read every provisioned dashboard and issue read-only
-PromQL through Grafana's datasource proxy. That is accepted: the datasource is Prometheus
-only, Postgres is not a Grafana datasource, and Prometheus runs without
-`--web.enable-admin-api` and without `--web.enable-lifecycle`, so the proxy cannot reach
-a mutating endpoint. Single-query cost is bounded by `--query.timeout` and
+What an anonymous visitor can do is read every provisioned dashboard, issue read-only
+PromQL through Grafana's datasource proxy, and list the datasource itself
+(`GET /api/datasources` returns 200 and discloses `http://prometheus:9090`, an internal
+compose hostname that resolves nowhere outside the stack). That is accepted: the
+datasource is Prometheus only, Postgres is not a Grafana datasource, and Prometheus runs
+without `--web.enable-admin-api` and without `--web.enable-lifecycle`, so the proxy
+cannot reach a mutating endpoint. Single-query cost is bounded by `--query.timeout` and
 `--query.max-samples`; the aggregate is not, since nothing rate-limits the datasource
 proxy, so the residual risk is compute exhaustion on an idle box rather than data
-exposure. Spans carry ids, model, tokens, cost, and policy counters, not
-invoice text, so the Jaeger UI exposes release identity rather than customer data. Write
-paths were probed against the pinned image rather than assumed: `POST /api/dashboards/db`,
-`/api/annotations`, `/api/datasources`, and `/api/admin/settings` return 403, and
-`/api/snapshots` returns 401. External snapshot sharing is switched off, so nothing can
-post dashboard data to a third-party host.
+exposure. Each vhost writes an access log, so that risk is at least observable and
+attributable. Spans carry ids, model, tokens, cost, and policy counters, not invoice
+text, so the Jaeger UI exposes release identity rather than customer data.
+
+Write paths were probed against the pinned image rather than assumed.
+`POST /api/dashboards/db`, `/api/annotations`, `/api/datasources`, `/api/library-elements`,
+and `/api/admin/settings` return 403; `/api/snapshots` returns 401; `/api/playlists`
+returns 403 on a well-formed body. External snapshot sharing is switched off, so nothing
+can post dashboard data to a third-party host.
+
+One anonymous write did exist and is closed at the proxy. `POST /api/short-urls`
+returned 200 and wrote a row that `/goto/<uid>` then resolved, because Grafana grants
+short-URL creation to any signed-in user and anonymous access makes every visitor one.
+The write is small, but it is unbounded and reachable without credentials, and a demo
+needs no share-link button, so the vhost refuses that one path with a 405. The rest of
+Grafana passes through, including the `POST /api/ds/query` that renders a panel, which
+is why there is no blanket method rule: it would break the dashboards it was protecting.
 
 Two operational notes carry real weight here.
 

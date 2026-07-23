@@ -270,6 +270,14 @@ to `3001`, so the vhost's upstream is dead and the public URL answers 502 until
 `make demo-up` puts it back. Which mode the instance is in follows from the port, not
 from remembering to stop the proxy first.
 
+The vhost forwards a port, not a container, so on a shared host confirm that nothing
+else took `3000` while the demo was off it. Otherwise the public name serves whatever
+did:
+
+```bash
+ss -ltnp 'sport = :3000'     # must be the releaseplane grafana, or nothing
+```
+
 `docs/SECURITY.md` has the full boundary and the probes that confirmed it.
 
 Serving Grafana anonymously on the public internet means keeping it patched rather
@@ -281,39 +289,74 @@ move the digest forward.
 The demo host fronts with Caddy, which issues and renews the certificates on its own,
 so there is no certbot step. The vhosts live in `infra/caddy/releaseplane.Caddyfile`
 as a fragment to append to the host's `/etc/caddy/Caddyfile`, with the real hostname
-substituted for `<demo-host>` (the same one `DEMO_ROOT_URL` carries in `infra/.env`):
+substituted for `<demo-host>` (the same one `DEMO_ROOT_URL` carries in `infra/.env`).
+
+**Validate a candidate, then install it. Never append to the live file first.** That
+file fronts every other site on the host, and a broken one persists: the reload
+itself fails safe, leaving the previous config serving, but the bad text stays on
+disk and takes everything down at the next restart or reboot, possibly days later.
 
 ```bash
-sed 's/<demo-host>/YOUR.HOST.NAME/' infra/caddy/releaseplane.Caddyfile \
-  | sudo tee -a /etc/caddy/Caddyfile > /dev/null
-sudo caddy validate --config /etc/caddy/Caddyfile
-sudo systemctl reload caddy
+HOST=your.host.name            # no angle brackets; the real name
+
+# Refuse to double-append. Caddy rejects a duplicated site address, and by the
+# time validate says so the live file already carries both copies.
+grep -q "releaseplane demo (managed)" /etc/caddy/Caddyfile \
+  && { echo "block already present; edit it in place instead"; exit 1; }
+
+sudo cp /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.bak.$(date +%F-%H%M)"
+cp /etc/caddy/Caddyfile /tmp/Caddyfile.candidate
+# The leading blank line also guards against a live file with no trailing newline,
+# which would otherwise glue the fragment onto the last existing line.
+{ echo; sed "s/<demo-host>/$HOST/" infra/caddy/releaseplane.Caddyfile; } \
+  >> /tmp/Caddyfile.candidate
+
+sudo caddy validate --config /tmp/Caddyfile.candidate --adapter caddyfile \
+  && sudo install -m 0644 /tmp/Caddyfile.candidate /etc/caddy/Caddyfile \
+  && sudo systemctl reload caddy
 ```
 
-Back the file up first if the host serves anything else from it; the fragment's
-delimiter comments make the block findable and removable later without disturbing
-the rest. `caddy validate` is the gate: a Caddyfile that does not parse takes down
-every vhost on the host, not just these two, so never reload without it.
+The `&&` chain is the point: nothing reaches `/etc/caddy/Caddyfile` unless validate
+passed. The fragment's delimiter comments make the block findable and removable
+later without disturbing the rest.
+
+`caddy validate` catches a parse error but not every load error. A config can adapt
+cleanly and still fail to apply, which is why the reload is the last link in the
+chain rather than a separate step, and why a failed reload needs the file repaired
+even though the site stays up on the previous config. Watch it land:
+
+```bash
+sudo journalctl -u caddy --since "2 min ago" | grep -iE "error|certificate obtained"
+```
+
+Each vhost logs its requests to stderr, which systemd captures, so the access log is
+`journalctl -u caddy | grep "handled request"`. Caddy redacts the Authorization
+header on the way in.
 
 Each block proxies a whole service rather than a path allowlist, which is why
 Grafana's own authentication is switched off in the overlay: everything Grafana
-serves is public. Two hostnames rather than one host with a `/traces` path, because
-Jaeger needs `QUERY_BASE_PATH` to serve its UI under a subpath.
+serves is public. The one exception is `POST /api/short-urls`, refused at the proxy,
+because Grafana grants short-URL creation to any signed-in user and anonymous access
+makes every visitor one. Two hostnames rather than one host with a `/traces` path,
+because Jaeger needs `QUERY_BASE_PATH` to serve its UI under a subpath.
 
-Confirm both names resolve before reloading. These are `sslip.io`-style wildcard
-names on this host, so they resolve without a DNS record, but Caddy cannot issue a
-certificate for a name that does not resolve to it:
+Confirm both names resolve before reloading. Wildcard-DNS names of the
+`<label>.<ip-with-dashes>.sslip.io` form resolve without a record, but Caddy cannot
+issue a certificate for a name that does not resolve to this host:
 
 ```bash
-getent hosts releaseplane.YOUR.HOST.NAME
+getent hosts "releaseplane.$HOST" "releaseplane-traces.$HOST"
 ```
 
 After the reload, the first request to each name takes a few seconds while Caddy
-obtains the certificate. Check that it did:
+obtains the certificate. Check that both did:
 
 ```bash
 sudo journalctl -u caddy --since "2 min ago" | grep -i "certificate obtained"
 ```
+
+To remove the block later, delete from the opening delimiter to the closing one and
+run the same validate-then-install sequence.
 
 ### The reachability gate
 
@@ -332,39 +375,63 @@ network) are fine, since nothing on the host reaches them. Then check from a cli
 that is not this host (a laptop, not an SSH session into the box), because a
 `localhost` probe passes either way. Every published port goes in the list:
 
-```
-# control-plane, gateway, Postgres, Prometheus, Grafana, Jaeger,
-# OTLP gRPC and HTTP, MinIO API and console
-Test-NetConnection <public-ip> -Port 8001    # and 8002, 5432, 9090, 3000,
-                                             # 16686, 4317, 4318, 9000, 9001
-```
-
-Substitute the remapped numbers on a host that sets them. Every one must fail. If any
-raw port answers, the demo does not go live until it is closed. The two demo URLs are
-the only things that may answer.
-
-Two vantages beat one, and neither may be this host. Anything that resolves the
-public IP from elsewhere works as the second: a request from outside returns a
-connection error for a closed port and a protocol-level error for an open one
-carrying a non-matching service, and the two are easy to tell apart. The
-distinction that matters is refused versus answered, not what the answer said.
-
-Then confirm the two surfaces that are supposed to answer, and that the boundary
-holds through the proxy rather than only on loopback:
+Take the list from `make demo-ports` rather than from a fixed set of numbers, so a
+host that remaps is covered without editing anything:
 
 ```bash
-U=https://releaseplane.<demo-host>
-curl -s -o /dev/null -w '%{http_code}\n' $U/api/search              # 200, anonymous
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -d '{}' \
-  -H 'Content-Type: application/json' $U/api/dashboards/db          # 403
-curl -s -o /dev/null -w '%{http_code}\n' -X POST -d '{"user":"admin","password":"x"}' \
-  -H 'Content-Type: application/json' $U/login                      # 400, no login form
-curl -s -o /dev/null -w '%{http_code}\n' -u admin:<real-password> $U/api/user  # 401
+make demo-ports | grep -oE '127\.0\.0\.1:[0-9]+' | cut -d: -f2 | sort -un
 ```
 
-A 200 on the first and a 4xx on the rest is the whole public contract. The last one
-matters most: it proves the real password buys nothing through the public URL, so
-there is no credential to guess there.
+Every one of those must fail from outside:
+
+```
+Test-NetConnection <public-ip> -Port <each-port-from-that-list>
+```
+
+If any raw port answers and belongs to this stack, the demo does not go live until it
+is closed. The two demo names are the only things that may answer.
+
+Use two vantages that are not this host, since a `localhost` probe passes either
+way. Anything that resolves the public IP from elsewhere works: a closed port
+returns a connection error, an open one returns something else, and the distinction
+that matters is refused versus answered rather than what the answer said.
+
+Attribute an answering port before treating it as a failure. On a shared host,
+another project's container may hold one of these numbers, which is a finding about
+that project rather than about this stack. `docker ps --filter "publish=<port>"`
+says whose it is.
+
+Then confirm both surfaces that are supposed to answer, and that the boundary holds
+through the proxy rather than only on loopback:
+
+```bash
+G="https://releaseplane.$HOST"
+J="https://releaseplane-traces.$HOST"
+
+curl -s -o /dev/null -w 'grafana  %{http_code}\n' "$G/api/search"      # 200 anonymous
+curl -s -o /dev/null -w 'jaeger   %{http_code}\n' "$J/"                # 200
+curl -s -o /dev/null -w 'panels   %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"queries":[{"refId":"A","datasource":{"uid":"prometheus","type":"prometheus"},"expr":"up","instant":true}],"from":"now-5m","to":"now"}' \
+  "$G/api/ds/query"                                                    # 200
+
+for p in /api/dashboards/db /api/annotations /api/datasources /api/snapshots /api/short-urls; do
+  curl -s -o /dev/null -w "write $p %{http_code}\n" -X POST \
+    -H 'Content-Type: application/json' -d '{}' "$G$p"                 # all 4xx
+done
+curl -s -o /dev/null -w 'login    %{http_code}\n' -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"user":"admin","password":"x"}' "$G/login"                      # 400, no form
+curl -s -o /dev/null -w 'basic    %{http_code}\n' \
+  -u "credentials-supplied-on-stdin" "$G/api/user"  # 401
+```
+
+A 200 on the first three and a 4xx on the rest is the whole public contract. Two of
+them carry most of the weight. The `basic` line proves the real password buys
+nothing through the public URL, so there is no credential worth guessing there. The
+`panels` line proves the dashboards still render: it is the one POST the surface has
+to allow, so a future method allowlist or filtering proxy that breaks the demo shows
+up here rather than in a visitor's blank screen.
 
 ### Why the dashboards default to a wide time range
 

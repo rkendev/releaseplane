@@ -1,10 +1,11 @@
 # Reverse-proxy vhosts for the public read-only demo (ADR 0009).
 #
 # This is a fragment, not a whole Caddyfile. Append it to the host's
-# /etc/caddy/Caddyfile, substituting the real hostname for <demo-host>, then:
-#
-#   caddy validate --config /etc/caddy/Caddyfile
-#   systemctl reload caddy
+# /etc/caddy/Caddyfile, substituting the real hostname for <demo-host>. Use the
+# procedure in the "Reverse proxy" section of docs/RUNBOOK.md, which validates a
+# candidate before writing the live file; on a host that fronts other projects,
+# an unvalidated write persists a broken config that takes them all down at the
+# next start.
 #
 # The delimiter comments make the block findable and removable by a later edit
 # without disturbing whatever else the host serves.
@@ -22,22 +23,63 @@
 # QUERY_BASE_PATH set to serve its UI under a subpath, and a second vhost costs
 # nothing on a host that already issues certificates per name.
 #
-# Note what is deliberately absent. There is no method allowlist: Grafana's own
-# frontend POSTs to /api/ds/query to render a dashboard panel, so rejecting
-# non-GET at the proxy would break the demo it is protecting. Read-only is
-# enforced in Grafana instead (anonymous Viewer, both authentication paths off),
-# and docs/SECURITY.md records the probes that confirmed it. There is also no rate
+# Note what is deliberately absent. There is no blanket method allowlist, tempting
+# as it looks for a read-only surface: Grafana's own frontend POSTs to
+# /api/ds/query to render a panel, so rejecting non-GET would break the demo it
+# was protecting. Read-only is enforced in Grafana instead (anonymous Viewer, both
+# authentication paths off), with one path-level exception below, and
+# docs/SECURITY.md records the probes that confirm it. There is also no rate
 # limit, which standard Caddy does not carry; the residual risk is compute on an
-# idle box rather than data exposure, and docs/SECURITY.md says so.
+# idle box rather than data exposure, which is why the access log below matters.
 
 # >>> releaseplane demo (managed) >>>
 releaseplane.<demo-host> {
-	reverse_proxy 127.0.0.1:3000
 	encode gzip
+
+	# Grafana grants short-URL creation to any signed-in user, and with anonymous
+	# access on, the anonymous visitor is one: POST /api/short-urls returns 200 and
+	# writes a row that /goto/<uid> then resolves. It is a small write, but it is a
+	# write, and an unbounded one on a public surface. A demo needs no share-link
+	# button, so the one path is refused here. Everything else Grafana serves is
+	# passed through, including the POST that renders a panel.
+	@shortener path /api/short-urls
+	respond @shortener "read-only demo" 405
+
+	# Without this the public surface produces no access log at all: Caddy v2 logs
+	# per site and sets no global default, so the accepted compute-exhaustion risk
+	# would be neither observable nor attributable. stderr rather than a file
+	# because systemd captures it into the journal alongside the rest of Caddy's
+	# output, which needs no directory, no permissions, and no rotation config on
+	# whatever host this lands on.
+	log {
+		output stderr
+	}
+
+	header {
+		# The site is HTTPS-only and the certificate renews automatically.
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	reverse_proxy 127.0.0.1:3000 {
+		# Grafana's auth-proxy mode is not enabled, so this header is not trusted
+		# today. Stripping it means a later operator turning that mode on does not
+		# hand authentication to anyone who can set a header.
+		header_up -X-WEBAUTH-USER
+		header_up -X-Grafana-User
+	}
 }
 
 releaseplane-traces.<demo-host> {
-	reverse_proxy 127.0.0.1:16686
 	encode gzip
+
+	log {
+		output stderr
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+	}
+
+	reverse_proxy 127.0.0.1:16686
 }
 # <<< releaseplane demo (managed) <<<

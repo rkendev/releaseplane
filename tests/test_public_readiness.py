@@ -9,6 +9,7 @@ any one package.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -308,7 +309,34 @@ def test_demo_overlay_leaves_no_authenticated_path_public() -> None:
     assert demo_env["GF_SNAPSHOTS_EXTERNAL_ENABLED"] == "false"
 
 
+def _caddy_upstreams() -> list[str]:
+    """The upstream address of every reverse_proxy in the tracked vhost fragment.
+
+    Takes the first token after the directive, so the ordinary block form
+    (`reverse_proxy 127.0.0.1:3000 {`) reads the same as the one-line form.
+    """
+    upstreams = []
+    for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        for directive in ("reverse_proxy", "forward_auth"):
+            if stripped.startswith(f"{directive} "):
+                upstreams.append(stripped.split()[1])
+    return upstreams
+
+
+# What the public vhost forwards, read from the vhost file rather than restated.
+# The admin overlay has to vacate this port, and deriving it here means the two
+# guards cannot drift apart.
 PROXIED_GRAFANA_PORT = "3000"
+
+
+def test_proxied_grafana_port_matches_the_vhost() -> None:
+    assert f"127.0.0.1:{PROXIED_GRAFANA_PORT}" in _caddy_upstreams(), (
+        f"the vhost no longer forwards {PROXIED_GRAFANA_PORT}; the admin-overlay "
+        f"guard below is checking a port nothing proxies"
+    )
 
 
 def test_admin_overlay_keeps_the_loopback_binds() -> None:
@@ -377,30 +405,52 @@ def test_caddy_vhosts_reach_only_the_two_public_services() -> None:
     pointing at the control plane or the gateway would put a write path on the
     internet, which is the one thing this design rules out.
     """
-    text = CADDY_VHOSTS.read_text(encoding="utf-8")
-    upstreams = [
-        line.split("reverse_proxy", 1)[1].strip()
-        for line in text.splitlines()
-        if line.strip().startswith("reverse_proxy")
-    ]
+    upstreams = _caddy_upstreams()
     assert upstreams, f"{CADDY_VHOSTS.name} declares no reverse_proxy"
     for upstream in upstreams:
         assert upstream.startswith(
             "127.0.0.1:"
         ), f"{CADDY_VHOSTS.name} proxies {upstream!r}, which is not loopback"
     reached = {u.split(":", 1)[1] for u in upstreams}
-    assert reached == {"3000", "16686"}, (
+    assert reached == {PROXIED_GRAFANA_PORT, "16686"}, (
         f"{CADDY_VHOSTS.name} reaches ports {sorted(reached)}; the public surface "
-        f"is Grafana (3000) and Jaeger (16686) and nothing else"
+        f"is Grafana ({PROXIED_GRAFANA_PORT}) and Jaeger (16686) and nothing else"
     )
+
+
+def test_caddy_vhosts_pull_in_no_other_config() -> None:
+    # An `import` would bring in upstreams this file does not name, so the guard
+    # above could pass while the deployed vhost reached anything at all.
+    for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines():
+        assert not line.strip().startswith("import "), (
+            f"{CADDY_VHOSTS.name} imports other config; the upstreams it reaches "
+            f"must be readable from this file alone"
+        )
+
+
+# A site address is a bare address line opening a block. Everything else in the
+# file is a directive, a comment, or a brace.
+_SITE_ADDRESS = re.compile(r"^([A-Za-z0-9.:<>_-]+)\s*\{$")
 
 
 def test_caddy_vhosts_carry_no_real_hostname() -> None:
     # The file is tracked and the repo goes public, so the host it runs on stays a
     # placeholder here and lives in the gitignored infra/.env, same as the ports.
-    text = CADDY_VHOSTS.read_text(encoding="utf-8")
-    assert "<demo-host>" in text
-    assert "sslip.io" not in text
+    # Asserted per site address rather than by looking for one known domain, so a
+    # substitution is caught whatever it substitutes in, including a bare IP.
+    addresses = [
+        match.group(1)
+        for line in CADDY_VHOSTS.read_text(encoding="utf-8").splitlines()
+        if not line.startswith((" ", "\t", "#"))
+        for match in [_SITE_ADDRESS.match(line.strip())]
+        if match
+    ]
+    assert addresses, f"{CADDY_VHOSTS.name} declares no site address"
+    for address in addresses:
+        assert "<demo-host>" in address, (
+            f"{CADDY_VHOSTS.name} serves {address!r}, which names a real host; the "
+            f"tracked copy keeps the <demo-host> placeholder"
+        )
 
 
 def test_demo_make_targets_include_the_overlay() -> None:
