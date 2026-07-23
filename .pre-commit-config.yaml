@@ -57,3 +57,10 @@ repos:
         language: python
         files: ^(README\.md|docs/.*\.md)$
         pass_filenames: true
+
+      - id: brand-guard
+        name: brand guard (no cross-project brand or external KB path, all files)
+        entry: python tools/brand_guard.py
+        language: python
+        types: [text]
+        pass_filenames: true

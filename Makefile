@@ -34,11 +34,12 @@ test:
 	if [ $$ec -eq 5 ]; then echo "test summary: 0 tests collected"; exit 0; fi; \
 	exit $$ec
 
-# Presence/wiring checks for the Claude Code lattice (ADR 0008). Outside the
-# default pytest collection (root tests/ is not in testpaths), so it has its own
-# target rather than running on every `make check`.
+# Repo-level checks in the root tests/ tree: the Claude Code lattice wiring (ADR
+# 0008) and the public-readiness guards (.gitignore secret coverage, the brand
+# guard's behavior). Outside the package testpaths that `make check` runs, so
+# it has its own target; CI runs it as the "Repo-level guards" step.
 lattice:
-	uv run pytest tests/test_claude_lattice.py -q
+	uv run pytest tests/ -q
 
 # Write one secret file per value in .env (workspace root) into infra/secrets/.
 # See infra/secrets.md. Never commit .env or the generated files. Files are

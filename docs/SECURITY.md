@@ -1,6 +1,6 @@
 # Security
 
-Scope: the v1 AP invoice-extraction slice as built through Phase 5. This documents
+Scope: the v1 AP invoice-extraction slice as built. This documents
 the threat model, the controls in place, what is deferred, and the trigger that
 moves a deferred control in.
 
@@ -65,3 +65,42 @@ pattern matched), not the invoice content.
   promotion API, **audit-log retention** policy, and **signed policy bundles** are
   out of scope for v1 (see `docs/SCOPE.md`) and follow the same no-drift phase-out
   rule.
+
+## Public repository
+
+The repository is going public. Two properties keep that safe, and CI enforces both on
+every run so neither can regress silently.
+
+- **No secret is committed, ever.** Provider keys and the dev-stack passwords are
+  file-mounted at runtime (`*_API_KEY_FILE`, the files under `infra/secrets/`), never
+  set as environment values in compose and never checked in. `.gitignore` covers
+  `infra/secrets/*` (keeping only the `.gitkeep` placeholder) and `.env`, and a test
+  asserts that coverage so it cannot be removed unnoticed. A `secret-scan` CI job runs
+  gitleaks over the full commit history on every push and pull request, so a key added
+  in any commit fails the build. Before the flip to public, every key that ever touched
+  the repository or the build host is rotated, including the one key used for the single
+  gated cost probe.
+- **No cross-project or internal reference leaks into new work.** A brand-guard check
+  runs over every tracked file, in pre-commit and again as a standalone CI step, and
+  fails on the cross-project brand token or the external Knowledge Base path that the
+  as-built doc pass removed. Naming the harness in its own documented config stays
+  allowed; the guard targets only those two tokens. This covers the working tree and
+  every new commit, so the neutralization cannot regress.
+
+Those two tokens still exist in early commit history, from before the as-built pass, so
+the working-tree guard is not sufficient on its own for the public flip. Two pre-flip
+gates cover history: the gitleaks `secret-scan` job (secrets), and a manual brand-history
+scan the owner runs, `python tools/brand_guard.py --history`, which fails while any early
+commit still carries a token. The flip to public is gated on scrubbing that history (a
+history rewrite, then a force-push) so a clone of the public repo carries neither token
+in any commit. Until that scrub, `--history` reports the exact commits and paths to fix.
+
+## Public demo surface
+
+There is none. The demo ships as a recording against the local stack, not as a hosted
+endpoint, so there is no public request path, no public spend surface, and nothing to
+rate-limit or kill-switch. The stack on camera is pinned to the offline `DummyProvider`,
+which makes no provider call. A live public endpoint would need a per-request rate limit,
+a daily spend cap with a counter, and an environment kill switch before it could be
+exposed; none of that is built, because none of it carries the demo narrative
+(`docs/SCOPE.md`).

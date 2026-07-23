@@ -5,6 +5,10 @@
 # so the integration tests can never skip unnoticed. No live API calls, no
 # secrets: the cost-delta probe lives outside pytest's testpaths and skips when
 # ANTHROPIC_API_KEY is unset, which it always is here.
+#
+# A second job, secret-scan, runs gitleaks over the full git history on every
+# run: it is the standing gate behind the public flip, so a committed secret
+# fails CI rather than being caught once by hand.
 name: CI
 
 on:
@@ -66,10 +70,22 @@ jobs:
           uv run alembic check
 
       # Full-tree hooks (yaml, eof, trailing-whitespace, ruff, mypy,
-      # banned-words). The mypy hook builds its own env from the config's
-      # additional_dependencies, so nothing extra is installed here.
+      # banned-words, brand-guard). The mypy hook builds its own env from the
+      # config's additional_dependencies, so nothing extra is installed here.
       - name: Pre-commit
         run: uv run pre-commit run --all-files
+
+      # Mirror the brand guard as a standalone step over every tracked file, so
+      # the cross-project brand and the external KB path cannot return even if the
+      # pre-commit step is ever changed. Same script the hook runs.
+      - name: Brand guard (all tracked files)
+        run: git ls-files -z | xargs -0 uv run python tools/brand_guard.py
+
+      # Repo-level presence and public-readiness checks (lattice wiring, .gitignore
+      # coverage of secrets, the brand guard's own behavior). These live in the
+      # root tests/ tree, outside the package testpaths make check runs.
+      - name: Repo-level guards
+        run: make lattice
 
       # ruff + mypy on the source, then pytest. The integration tests build the
       # schema against the Postgres service and exercise the registry, promote,
@@ -84,3 +100,21 @@ jobs:
             echo "a test reached a provider API (anthropic/openai); the build must make zero live calls"
             exit 1
           fi
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      # fetch-depth: 0 pulls the full history so gitleaks scans every commit, not
+      # just the tip. This is the public-flip pre-condition, enforced continuously.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # gitleaks pinned by manifest digest (v8.21.2), matching the local scanner.
+      # `detect` scans the committed history; --redact keeps any match out of the
+      # logs. The container exits non-zero on any finding, which fails the job.
+      - name: gitleaks (full history)
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" \
+            ghcr.io/gitleaks/gitleaks@sha256:0e99e8821643ea5b235718642b93bb32486af9c8162c8b8731f7cbdc951a7f46 \
+            detect --source /repo --redact --no-banner

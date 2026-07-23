@@ -57,6 +57,12 @@ ignore = ["S101"]  # asserts in tests
 # The dataset generator uses the stdlib PRNG with a fixed seed for reproducible
 # synthetic data; it is not security-sensitive.
 "evals/src/releaseplane_evals/generator/invoices.py" = ["S311"]
+# The public-readiness test shells out to git and to the brand-guard script by
+# name, with fixed arguments and no user input, to assert repo-level properties.
+"tests/test_public_readiness.py" = ["S603", "S607"]
+# The brand guard's history mode invokes git (rev-list, grep) by name with fixed
+# arguments and no user input.
+"tools/brand_guard.py" = ["S603", "S607"]
 
 [tool.mypy]
 python_version = "3.12"
