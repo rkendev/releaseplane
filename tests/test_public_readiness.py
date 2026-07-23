@@ -507,6 +507,61 @@ def test_caddy_vhosts_log_every_site() -> None:
     assert text.count("log {") == len(_caddy_site_lines())
 
 
+POPULATE_SCRIPT = REPO_ROOT / "infra" / "scripts" / "populate_demo.sh"
+
+
+def test_population_script_cannot_spend_without_an_acknowledgement() -> None:
+    """The only live-spend path outside the eval baselines stays owner-triggered.
+
+    Asserted on the script rather than on a convention, because the cost of this
+    one regressing is real money on someone else's schedule. Running it is the
+    check: with no acknowledgement in the environment it must refuse before it
+    reaches a provider, and it must say what it would have cost.
+    """
+    assert POPULATE_SCRIPT.exists()
+
+    result = subprocess.run(
+        ["bash", str(POPULATE_SCRIPT)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    assert result.returncode != 0, "the script ran without an acknowledgement"
+    assert "RELEASEPLANE_DEMO_SPEND=i-accept" in result.stderr
+    assert "Estimated spend" in result.stderr
+
+    # A near-miss value must not satisfy it either.
+    almost = subprocess.run(
+        ["bash", str(POPULATE_SCRIPT)],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "RELEASEPLANE_DEMO_SPEND": "yes"},
+    )
+    assert almost.returncode != 0
+
+
+def test_population_script_is_syntactically_valid() -> None:
+    # It is not covered by ruff or mypy, and a syntax error would surface halfway
+    # through a paid run rather than at the start of one.
+    result = subprocess.run(
+        ["bash", "-n", str(POPULATE_SCRIPT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_population_script_is_not_reachable_from_ci() -> None:
+    # Nothing in the workflow may invoke it, directly or through a make target.
+    assert "populate_demo" not in CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "populate_demo" not in (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+
 def test_demo_make_targets_include_the_overlay() -> None:
     # The runbook points at these targets as the thing that keeps a bring-up from
     # forgetting the overlay, so the file list they carry is load-bearing. The

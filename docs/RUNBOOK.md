@@ -513,6 +513,70 @@ the `panels` line proves the dashboards still render, since it is the one POST t
 surface has to allow, so a future method allowlist or filtering proxy that breaks the
 demo shows up here rather than in a visitor's blank screen.
 
+### Putting real data behind the dashboards (spends)
+
+`infra/scripts/populate_demo.sh` is the one deliberate live-spend path outside the
+eval baseline runs. Nothing invokes it automatically: CI never runs it, nothing
+imports it, and it refuses to start without `RELEASEPLANE_DEMO_SPEND=i-accept` in
+the environment. Estimated spend is **roughly $0.60 to $1.80** of the owner's own
+credit, printed before anything runs, and the same again on a re-run.
+
+It produces exactly what the dashboards need: a v1 release the gate blocks (the
+discount-as-negative-line failure), a v2 release that passes and is promoted to
+active, and three `/invoke` calls, one on the Sonnet default, one routed to
+gpt-4o-mini, and one carrying a bad total so a policy event renders.
+
+**Rehearse it first. The dry run is free and it has already caught a real bug:**
+
+```bash
+infra/scripts/populate_demo.sh --dry-run
+```
+
+That does everything costing nothing (preconditions, seeding, the gpt-4o-mini model
+config and its routing rule, the dataset load, and creating the v1 release) and
+stops before the first eval. It runs against the dummy-pinned stack, which is the
+normal state, so there is no reason not to run it.
+
+Then the real one:
+
+```bash
+# 1. Unpin the gateway so selection follows the model config.
+#    Set GATEWAY_PROVIDER: "" in infra/docker-compose.override.yml, then:
+make demo-up
+
+# 2. Both provider keys must be present, or the run half-works.
+make secrets     # from a .env carrying CLAUDE_API_KEY and OPENAI_API_KEY
+
+# 3. Spend.
+RELEASEPLANE_DEMO_SPEND=i-accept infra/scripts/populate_demo.sh
+
+# 4. Re-pin to dummy and bring the stack back, before walking away from a stack
+#    that can spend. Set GATEWAY_PROVIDER: "dummy" again, then:
+make demo-up
+docker inspect releaseplane-gateway \
+  --format '{{range .Config.Env}}{{println .}}{{end}}' | grep GATEWAY_PROVIDER
+```
+
+The script refuses to run while the gateway is still pinned to `dummy`, because
+that would score every case at zero, spend nothing, and look like it worked. It does
+not edit the override file for you: on a shared host that file is local state a
+script has no business rewriting, so step 4 is yours.
+
+Two routing details are easy to get wrong and both cost a real invoke to notice.
+Routing rules are keyed on the prompt's `use_case` (`ap_invoice_extraction`), not on
+the prompt name, so a rule written against the name never fires; the script reads
+the value from the prompt rather than carrying a literal. And a pinned `release_id`
+never routes, by design, so the cost-tier invoke resolves by `prompt_name` against
+the active release instead.
+
+Afterwards, check the three surfaces:
+
+| Surface | What should be there |
+| --- | --- |
+| eval dashboard | the v1 series under the 100% line on Tier-2, v2 on it |
+| gateway dashboard | routing decisions split across both providers, one policy event |
+| Jaeger | three traces carrying release_id, provider, cost, and policy status |
+
 ### Why the dashboards default to a wide time range
 
 The eval and gateway dashboards open on `now-1y`. The eval metrics are emitted once
