@@ -102,7 +102,7 @@ services:
     # instance anonymously on the public internet, and CVE-2025-3260 was an
     # authorization bypass in the dashboard API that named anonymous-auth
     # instances specifically, so an old pin is not a safe pin here.
-    image: grafana/grafana:13.1.1@sha256:7cb8c64c4d57a57e734073f3cc94620adb24a0acb929bd80ba9f14017e3a975b
+    image: grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b
     container_name: releaseplane-grafana
     environment:
       GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
